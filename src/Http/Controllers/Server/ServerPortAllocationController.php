@@ -31,7 +31,7 @@ class ServerPortAllocationController
             ->get();
 
         $profile = $server->egg !== null
-            ? GameProfile::query()->where('egg_id', $server->egg->id)->with('subRules')->first()
+            ? GameProfile::query()->forEgg($server->egg->id)->with('subRules')->first()
             : null;
 
         $eggRules = $profile !== null && $profile->subRules->isNotEmpty()

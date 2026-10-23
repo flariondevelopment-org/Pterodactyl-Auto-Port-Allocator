@@ -41,7 +41,7 @@ class AutoPortAllocationService
         array $environment = []
     ): AllocationPlanResult {
         /** @var GameProfile|null $profile */
-        $profile = GameProfile::query()->where('egg_id', $eggId)->with('subRules')->first();
+        $profile = GameProfile::query()->forEgg($eggId)->with('subRules')->first();
 
         // Validate primary allocation against profile ranges if configured
         if ($profile !== null) {
@@ -158,7 +158,7 @@ class AutoPortAllocationService
         }
 
         /** @var GameProfile|null $profile */
-        $profile = GameProfile::query()->where('egg_id', $egg->id)->with('subRules')->first();
+        $profile = GameProfile::query()->forEgg($egg->id)->with('subRules')->first();
 
         /** @var Collection<int, SubRule|PortRule> $rules */
         $rules = $profile !== null && $profile->subRules->isNotEmpty()

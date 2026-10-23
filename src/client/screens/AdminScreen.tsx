@@ -49,12 +49,14 @@ interface SubRule {
 interface GameProfile {
     id: number;
     egg_id: number;
+    egg_ids?: number[] | null;
     name: string;
     description: string | null;
     primary_range_start: number | null;
     primary_range_end: number | null;
     primary_port_ranges?: Array<{ start: number; end: number }> | null;
     egg?: Egg;
+    eggs?: Egg[];
     sub_rules?: SubRule[];
 }
 
@@ -70,6 +72,13 @@ const RESERVED_VARIABLES = [
     'UUID',
 ];
 
+const getProfileEggIds = (profile: GameProfile): number[] => {
+    if (profile.egg_ids && Array.isArray(profile.egg_ids) && profile.egg_ids.length > 0) {
+        return profile.egg_ids.map(Number);
+    }
+    return profile.egg_id ? [Number(profile.egg_id)] : [];
+};
+
 export default function AdminScreen() {
     const [profiles, setProfiles] = useState<GameProfile[]>([]);
     const [eggs, setEggs] = useState<Egg[]>([]);
@@ -82,7 +91,8 @@ export default function AdminScreen() {
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [editingProfile, setEditingProfile] = useState<GameProfile | null>(null);
     const [profileName, setProfileName] = useState('');
-    const [profileEggId, setProfileEggId] = useState<number | ''>('');
+    const [profileEggIds, setProfileEggIds] = useState<number[]>([]);
+    const [eggSearch, setEggSearch] = useState('');
     const [profileDescription, setProfileDescription] = useState('');
     const [primaryRanges, setPrimaryRanges] = useState<PortRange[]>([{ start: '', end: '' }]);
 
@@ -118,9 +128,25 @@ export default function AdminScreen() {
         loadData();
     }, []);
 
-    // Active profile egg variables
-    const activeEgg = eggs.find((e) => e.id === activeProfileForSubRule?.egg_id);
-    const eggVariables = activeEgg?.variables || [];
+    // Filtered eggs for profile modal search
+    const filteredEggs = eggs.filter((egg) => {
+        if (!eggSearch.trim()) return true;
+        const term = eggSearch.toLowerCase();
+        return egg.name.toLowerCase().includes(term) || String(egg.id).includes(term);
+    });
+
+    // Active profile egg variables across all linked eggs
+    const activeEggIds = activeProfileForSubRule ? getProfileEggIds(activeProfileForSubRule) : [];
+    const activeLinkedEggs = eggs.filter((e) => activeEggIds.includes(e.id));
+    const eggVariablesMap = new Map<string, EggVariable>();
+    for (const egg of activeLinkedEggs) {
+        for (const variable of egg.variables || []) {
+            if (!eggVariablesMap.has(variable.env_variable)) {
+                eggVariablesMap.set(variable.env_variable, variable);
+            }
+        }
+    }
+    const eggVariables = Array.from(eggVariablesMap.values());
 
     // Primary ranges management
     const addPrimaryRange = () => {
@@ -157,7 +183,8 @@ export default function AdminScreen() {
     const openCreateProfileModal = () => {
         setEditingProfile(null);
         setProfileName('');
-        setProfileEggId('');
+        setProfileEggIds([]);
+        setEggSearch('');
         setProfileDescription('');
         setPrimaryRanges([{ start: '', end: '' }]);
         setShowProfileModal(true);
@@ -166,7 +193,8 @@ export default function AdminScreen() {
     const openEditProfileModal = (profile: GameProfile) => {
         setEditingProfile(profile);
         setProfileName(profile.name);
-        setProfileEggId(profile.egg_id);
+        setProfileEggIds(getProfileEggIds(profile));
+        setEggSearch('');
         setProfileDescription(profile.description || '');
         if (profile.primary_port_ranges && profile.primary_port_ranges.length > 0) {
             setPrimaryRanges(profile.primary_port_ranges.map((r) => ({ start: r.start, end: r.end })));
@@ -180,8 +208,8 @@ export default function AdminScreen() {
 
     const handleSaveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!profileName.trim() || !profileEggId) {
-            toast.error('Please enter a game name and select an Egg.');
+        if (!profileName.trim() || profileEggIds.length === 0) {
+            toast.error('Please enter a game name and select at least one Egg.');
             return;
         }
 
@@ -193,7 +221,8 @@ export default function AdminScreen() {
             setSubmittingProfile(true);
             const payload = {
                 name: profileName.trim(),
-                egg_id: Number(profileEggId),
+                egg_ids: profileEggIds,
+                egg_id: profileEggIds[0],
                 description: profileDescription.trim() || null,
                 primary_port_ranges: validRanges.length > 0 ? validRanges : null,
             };
@@ -470,9 +499,14 @@ export default function AdminScreen() {
                                         <div>
                                             <div className={'apa:flex apa:items-center apa:gap-3 apa:flex-wrap'}>
                                                 <h3 className={'apa:text-lg apa:font-bold apa:text-foreground'}>{profile.name}</h3>
-                                                <Badge tone={'accent'} variant={'solid'}>
-                                                    Egg: {profile.egg?.name || `Egg #${profile.egg_id}`}
-                                                </Badge>
+                                                {getProfileEggIds(profile).map((eid) => {
+                                                    const matched = eggs.find((e) => e.id === eid) || profile.eggs?.find((e) => e.id === eid);
+                                                    return (
+                                                        <Badge key={eid} tone={'accent'} variant={'solid'}>
+                                                            Egg: {matched?.name || `Egg #${eid}`}
+                                                        </Badge>
+                                                    );
+                                                })}
                                                 {primaryDisplay !== 'Any Free' ? (
                                                     <Badge tone={'neutral'} variant={'soft'}>
                                                         Primary Ranges: {primaryDisplay}
@@ -728,51 +762,137 @@ export default function AdminScreen() {
                                     {/* Game Profile Name */}
                                     <div>
                                         <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                            Game Profile Name
+                                            Game Profile Name *
                                         </label>
                                         <input
                                             type={'text'}
                                             value={profileName}
                                             onChange={(e) => setProfileName(e.target.value)}
-                                            placeholder={'e.g. MTA (Multi Theft Auto), Rust'}
+                                            placeholder={'e.g. MTA (Multi Theft Auto), Rust, Minecraft'}
                                             className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                             required
                                         />
                                     </div>
 
-                                    {/* Target Egg */}
+                                    {/* Description */}
                                     <div>
                                         <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                            Target Egg
+                                            Description (Optional)
                                         </label>
-                                        <select
-                                            value={profileEggId}
-                                            onChange={(e) => setProfileEggId(e.target.value ? Number(e.target.value) : '')}
+                                        <input
+                                            type={'text'}
+                                            value={profileDescription}
+                                            onChange={(e) => setProfileDescription(e.target.value)}
+                                            placeholder={'e.g. Multi-port setup with HTTP and ASE ports'}
                                             className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                            required
-                                        >
-                                            <option value={''}>Select Target Egg...</option>
-                                            {eggs.map((egg) => (
-                                                <option key={egg.id} value={egg.id}>
-                                                    {egg.name} (Egg #{egg.id})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        />
                                     </div>
                                 </div>
 
-                                {/* Description */}
-                                <div>
-                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                        Description (Optional)
-                                    </label>
+                                {/* Target Eggs Multi-Select */}
+                                <div className={'apa:rounded-lg apa:border apa:border-muted apa:p-3 apa:bg-muted/10 apa:space-y-3'}>
+                                    <div className={'apa:flex apa:flex-wrap apa:justify-between apa:items-center apa:gap-2'}>
+                                        <div>
+                                            <label className={'apa:block apa:text-xs personal-egg-label apa:font-semibold apa:text-foreground'}>
+                                                Target Egg(s) * ({profileEggIds.length} selected)
+                                            </label>
+                                            <p className={'apa:text-xs apa:text-muted-foreground'}>
+                                                Select all game eggs that share this profile&apos;s port allocation rules.
+                                            </p>
+                                        </div>
+                                        <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                            <button
+                                                type={'button'}
+                                                onClick={() => {
+                                                    const filteredIds = filteredEggs.map((e) => e.id);
+                                                    setProfileEggIds((prev) => Array.from(new Set([...prev, ...filteredIds])));
+                                                }}
+                                                className={'apa:text-xs apa:text-primary apa:hover:underline apa:cursor-pointer'}
+                                            >
+                                                Select All
+                                            </button>
+                                            <span className={'apa:text-muted-foreground apa:text-xs'}>|</span>
+                                            <button
+                                                type={'button'}
+                                                onClick={() => setProfileEggIds([])}
+                                                className={'apa:text-xs apa:text-muted-foreground apa:hover:text-foreground apa:cursor-pointer'}
+                                            >
+                                                Clear All
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Search & Filter */}
                                     <input
                                         type={'text'}
-                                        value={profileDescription}
-                                        onChange={(e) => setProfileDescription(e.target.value)}
-                                        placeholder={'e.g. Multi-port setup with HTTP and ASE ports'}
-                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        value={eggSearch}
+                                        onChange={(e) => setEggSearch(e.target.value)}
+                                        placeholder={'Search eggs by name or ID...'}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-xs'}
                                     />
+
+                                    {/* Selected Egg Chips */}
+                                    {profileEggIds.length > 0 && (
+                                        <div className={'apa:flex apa:flex-wrap apa:gap-1.5'}>
+                                            {profileEggIds.map((id) => {
+                                                const egg = eggs.find((e) => e.id === id);
+                                                return (
+                                                    <span
+                                                        key={id}
+                                                        className={'apa:inline-flex apa:items-center apa:gap-1.5 apa:bg-primary/20 apa:text-primary apa:border apa:border-primary/40 apa:rounded-md apa:px-2 apa:py-0.5 apa:text-xs apa:font-medium'}
+                                                    >
+                                                        <span>{egg ? egg.name : `Egg #${id}`}</span>
+                                                        <button
+                                                            type={'button'}
+                                                            onClick={() => setProfileEggIds((prev) => prev.filter((item) => item !== id))}
+                                                            className={'apa:hover:text-red-400 apa:cursor-pointer apa:font-bold apa:ml-0.5'}
+                                                            title={'Remove'}
+                                                        >
+                                                            ✕
+                                                        </button>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    {/* Scrollable Egg Checkbox List */}
+                                    <div className={'apa:max-h-44 apa:overflow-y-auto apa:rounded apa:border apa:border-muted apa:bg-background/80 apa:divide-y apa:divide-muted/40'}>
+                                        {filteredEggs.length === 0 ? (
+                                            <div className={'apa:p-3 apa:text-center apa:text-xs apa:text-muted-foreground'}>
+                                                No eggs match your search.
+                                            </div>
+                                        ) : (
+                                            filteredEggs.map((egg) => {
+                                                const isSelected = profileEggIds.includes(egg.id);
+                                                return (
+                                                    <label
+                                                        key={egg.id}
+                                                        className={`apa:flex apa:items-center apa:gap-3 apa:p-2 apa:cursor-pointer apa:transition-colors apa:text-xs ${
+                                                            isSelected ? 'apa:bg-primary/10' : 'apa:hover:bg-muted/20'
+                                                        }`}
+                                                    >
+                                                        <input
+                                                            type={'checkbox'}
+                                                            checked={isSelected}
+                                                            onChange={() => {
+                                                                setProfileEggIds((prev) =>
+                                                                    isSelected ? prev.filter((id) => id !== egg.id) : [...prev, egg.id]
+                                                                );
+                                                            }}
+                                                            className={'apa:rounded apa:border-muted apa:text-primary apa:cursor-pointer'}
+                                                        />
+                                                        <span className={'apa:font-medium apa:text-foreground'}>
+                                                            {egg.name}
+                                                        </span>
+                                                        <span className={'apa:text-muted-foreground apa:text-[11px]'}>
+                                                            (Egg #{egg.id})
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Multiple Primary Port Ranges */}
@@ -866,7 +986,7 @@ export default function AdminScreen() {
                                             : `Add Secondary Port to "${activeProfileForSubRule.name}"`}
                                     </h3>
                                     <p className={'apa:text-xs apa:text-muted-foreground'}>
-                                        Game Profile: {activeProfileForSubRule.name} (Egg #{activeProfileForSubRule.egg_id})
+                                        Game Profile: <strong>{activeProfileForSubRule.name}</strong> ({activeLinkedEggs.map((e) => e.name).join(', ') || `Egg #${activeProfileForSubRule.egg_id}`})
                                     </p>
                                 </div>
                                 <button

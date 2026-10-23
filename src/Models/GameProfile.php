@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AutoPortAllocator\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,6 +14,7 @@ use Pterodactyl\Models\Egg;
 /**
  * @property int $id
  * @property int $egg_id
+ * @property list<int>|null $egg_ids
  * @property string $name
  * @property string|null $description
  * @property int|null $primary_range_start
@@ -30,6 +32,7 @@ class GameProfile extends Model
 
     protected $fillable = [
         'egg_id',
+        'egg_ids',
         'name',
         'description',
         'primary_range_start',
@@ -39,6 +42,7 @@ class GameProfile extends Model
 
     protected $casts = [
         'egg_id' => 'integer',
+        'egg_ids' => 'array',
         'primary_range_start' => 'integer',
         'primary_range_end' => 'integer',
         'primary_port_ranges' => 'array',
@@ -57,6 +61,33 @@ class GameProfile extends Model
     public function serverPorts(): HasMany
     {
         return $this->hasMany(ServerAllocatedPort::class, 'profile_id');
+    }
+
+    /**
+     * Scope a query to find profiles matching a specific egg ID (either primary egg_id or in egg_ids list).
+     */
+    public function scopeForEgg(Builder $query, int $eggId): Builder
+    {
+        return $query->where(function (Builder $q) use ($eggId): void {
+            $q->whereJsonContains('egg_ids', $eggId)
+                ->orWhere('egg_id', $eggId);
+        });
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function getEggIds(): array
+    {
+        if (! empty($this->egg_ids) && is_array($this->egg_ids)) {
+            return array_values(array_unique(array_map('intval', $this->egg_ids)));
+        }
+
+        if ($this->egg_id) {
+            return [(int) $this->egg_id];
+        }
+
+        return [];
     }
 
     /**

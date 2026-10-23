@@ -37,11 +37,21 @@ class GameProfileController
             ->orderBy('name');
 
         if ($request->has('egg_id')) {
-            $query->where('egg_id', (int) $request->input('egg_id'));
+            $query->forEgg((int) $request->input('egg_id'));
         }
 
+        $profiles = $query->get();
+
+        $allEggIds = $profiles->flatMap(fn (GameProfile $p) => $p->getEggIds())->unique()->values()->all();
+        $eggsById = Egg::query()->whereIn('id', $allEggIds)->get(['id', 'name'])->keyBy('id');
+
+        $profiles->each(function (GameProfile $p) use ($eggsById): void {
+            $linked = collect($p->getEggIds())->map(fn ($id) => $eggsById->get($id))->filter()->values();
+            $p->setRelation('eggs', $linked);
+        });
+
         return new JsonResponse([
-            'profiles' => $query->get(),
+            'profiles' => $profiles,
         ]);
     }
 
@@ -49,7 +59,9 @@ class GameProfileController
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'egg_id' => ['required', 'integer', 'exists:eggs,id'],
+            'egg_id' => ['nullable', 'integer', 'exists:eggs,id'],
+            'egg_ids' => ['nullable', 'array', 'min:1'],
+            'egg_ids.*' => ['integer', 'exists:eggs,id'],
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:255'],
             'primary_range_start' => ['nullable', 'integer', 'between:1024,65535'],
@@ -59,6 +71,22 @@ class GameProfileController
             'primary_port_ranges.*.end' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
         ]);
 
+        $eggIds = [];
+        if (! empty($validated['egg_ids'])) {
+            $eggIds = array_values(array_unique(array_map('intval', $validated['egg_ids'])));
+        } elseif (! empty($validated['egg_id'])) {
+            $eggIds = [(int) $validated['egg_id']];
+        }
+
+        if (empty($eggIds)) {
+            throw ValidationException::withMessages([
+                'egg_ids' => ['At least one target egg must be selected.'],
+            ]);
+        }
+
+        $validated['egg_ids'] = $eggIds;
+        $validated['egg_id'] = $eggIds[0];
+
         if (! empty($validated['primary_port_ranges'])) {
             $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
             $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
@@ -67,7 +95,7 @@ class GameProfileController
         $profile = GameProfile::query()->create($validated);
 
         return new JsonResponse([
-            'profile' => $profile->load(['egg:id,name', 'subRules']),
+            'profile' => $this->loadLinkedEggs($profile),
             'message' => 'Game profile created successfully.',
         ], 201);
     }
@@ -78,7 +106,9 @@ class GameProfileController
         $profile = GameProfile::query()->findOrFail($profileId);
 
         $validated = $request->validate([
-            'egg_id' => ['sometimes', 'integer', 'exists:eggs,id'],
+            'egg_id' => ['nullable', 'integer', 'exists:eggs,id'],
+            'egg_ids' => ['nullable', 'array', 'min:1'],
+            'egg_ids.*' => ['integer', 'exists:eggs,id'],
             'name' => ['sometimes', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:255'],
             'primary_range_start' => ['nullable', 'integer', 'between:1024,65535'],
@@ -88,6 +118,24 @@ class GameProfileController
             'primary_port_ranges.*.end' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
         ]);
 
+        if (array_key_exists('egg_ids', $validated) || array_key_exists('egg_id', $validated)) {
+            $eggIds = [];
+            if (! empty($validated['egg_ids'])) {
+                $eggIds = array_values(array_unique(array_map('intval', $validated['egg_ids'])));
+            } elseif (! empty($validated['egg_id'])) {
+                $eggIds = [(int) $validated['egg_id']];
+            }
+
+            if (empty($eggIds)) {
+                throw ValidationException::withMessages([
+                    'egg_ids' => ['At least one target egg must be selected.'],
+                ]);
+            }
+
+            $validated['egg_ids'] = $eggIds;
+            $validated['egg_id'] = $eggIds[0];
+        }
+
         if (array_key_exists('primary_port_ranges', $validated) && ! empty($validated['primary_port_ranges'])) {
             $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
             $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
@@ -96,7 +144,7 @@ class GameProfileController
         $profile->update($validated);
 
         return new JsonResponse([
-            'profile' => $profile->load(['egg:id,name', 'subRules']),
+            'profile' => $this->loadLinkedEggs($profile),
             'message' => 'Game profile updated successfully.',
         ]);
     }
@@ -234,5 +282,15 @@ class GameProfileController
                 ],
             ]);
         }
+    }
+
+    private function loadLinkedEggs(GameProfile $profile): GameProfile
+    {
+        $profile->load(['egg:id,name', 'subRules']);
+        $eggIds = $profile->getEggIds();
+        $eggs = Egg::query()->whereIn('id', $eggIds)->get(['id', 'name']);
+        $profile->setRelation('eggs', $eggs);
+
+        return $profile;
     }
 }
