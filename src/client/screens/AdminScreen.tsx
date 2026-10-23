@@ -559,7 +559,9 @@ export default function AdminScreen() {
                                                             </span>
                                                         </td>
                                                         <td className={'apa:py-3.5 personal-type apa:px-4 apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
-                                                            <Badge tone={'neutral'} variant={'soft'}>Primary Range</Badge>
+                                                            <Badge tone={'neutral'} variant={'soft'}>
+                                                                {primaryDisplay !== 'Any Allowed' ? 'Range' : 'Any Free'}
+                                                            </Badge>
                                                         </td>
                                                         <td className={'apa:py-3.5 apa:px-4 apa:font-mono apa:text-xs apa:text-slate-200 apa:border-r apa:border-slate-700/50'}>
                                                             {primaryDisplay}
@@ -607,7 +609,7 @@ export default function AdminScreen() {
                                                                         {subRule.allocation_type === 'offset'
                                                                             ? 'Fixed Offset'
                                                                             : subRule.allocation_type === 'range'
-                                                                              ? 'Port Range(s)'
+                                                                              ? 'Range'
                                                                               : 'Any Available'}
                                                                     </Badge>
                                                                 </td>
