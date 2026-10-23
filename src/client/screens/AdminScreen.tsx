@@ -10,7 +10,7 @@ import {
     TitledGreyBox,
     toast,
 } from '@pterodactyl/sdk';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Trash2 } from 'lucide-react';
 
 interface EggVariable {
     id: number;
@@ -775,7 +775,7 @@ export default function AdminScreen() {
 
                                 {/* Multiple Primary Port Ranges */}
                                 <div className={'apa:rounded-lg apa:border apa:border-muted apa:p-3 apa:bg-muted/10 apa:space-y-3'}>
-                                    <div className={'apa:flex apa:justify-between apa:items-center'}>
+                                    <div className={'apa:flex apa:justify-between apa:items-center apa:gap-3'}>
                                         <div>
                                             <label className={'apa:block apa:text-xs apa:font-semibold apa:text-foreground'}>
                                                 Primary Port (SERVER_PORT) Allowed Range(s)
@@ -784,13 +784,15 @@ export default function AdminScreen() {
                                                 You can define one or more port ranges (e.g. 22003–22050 and 22100–22150). Leave blank for any port.
                                             </p>
                                         </div>
-                                        <button
+                                        <Button
+                                            size={'xsmall'}
                                             type={'button'}
                                             onClick={addPrimaryRange}
-                                            className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline apa:cursor-pointer'}
+                                            className={'apa:flex apa:items-center apa:gap-1.5 apa:whitespace-nowrap'}
                                         >
-                                            + Add Another Range
-                                        </button>
+                                            <Plus className={'apa:w-3.5 apa:h-3.5'} />
+                                            <span>Add Another Range</span>
+                                        </Button>
                                     </div>
 
                                     <div className={'apa:space-y-2'}>
@@ -812,14 +814,16 @@ export default function AdminScreen() {
                                                     className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                                 />
                                                 {primaryRanges.length > 1 && (
-                                                    <button
+                                                    <Button
+                                                        size={'xsmall'}
+                                                        color={'red'}
                                                         type={'button'}
                                                         onClick={() => removePrimaryRange(idx)}
-                                                        className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80 apa:cursor-pointer'}
                                                         title={'Remove Range'}
+                                                        className={'apa:p-1.5'}
                                                     >
-                                                        ✕
-                                                    </button>
+                                                        <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
+                                                    </Button>
                                                 )}
                                             </div>
                                         ))}
@@ -976,7 +980,7 @@ export default function AdminScreen() {
                                 {/* Mode: Multiple Port Ranges */}
                                 {subRuleAllocType === 'range' && (
                                     <div className={'apa:rounded-lg apa:border apa:border-muted apa:p-3 apa:bg-muted/10 apa:space-y-3'}>
-                                        <div className={'apa:flex apa:justify-between apa:items-center'}>
+                                        <div className={'apa:flex apa:justify-between apa:items-center apa:gap-3'}>
                                             <div>
                                                 <label className={'apa:block apa:text-xs apa:font-semibold apa:text-foreground'}>
                                                     Dedicated Port Range(s)
@@ -985,13 +989,15 @@ export default function AdminScreen() {
                                                     Define one or multiple ranges for this secondary port (e.g. 28016–28025 and 29016–29025).
                                                 </p>
                                             </div>
-                                            <button
+                                            <Button
+                                                size={'xsmall'}
                                                 type={'button'}
                                                 onClick={addSubRuleRange}
-                                                className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline apa:cursor-pointer'}
+                                                className={'apa:flex apa:items-center apa:gap-1.5 apa:whitespace-nowrap'}
                                             >
-                                                + Add Another Range
-                                            </button>
+                                                <Plus className={'apa:w-3.5 apa:h-3.5'} />
+                                                <span>Add Another Range</span>
+                                            </Button>
                                         </div>
 
                                         <div className={'apa:space-y-2'}>
@@ -1015,14 +1021,16 @@ export default function AdminScreen() {
                                                         required
                                                     />
                                                     {subRuleRanges.length > 1 && (
-                                                        <button
+                                                        <Button
+                                                            size={'xsmall'}
+                                                            color={'red'}
                                                             type={'button'}
                                                             onClick={() => removeSubRuleRange(idx)}
-                                                            className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80 apa:cursor-pointer'}
                                                             title={'Remove Range'}
+                                                            className={'apa:p-1.5'}
                                                         >
-                                                            ✕
-                                                        </button>
+                                                            <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
+                                                        </Button>
                                                     )}
                                                 </div>
                                             ))}
