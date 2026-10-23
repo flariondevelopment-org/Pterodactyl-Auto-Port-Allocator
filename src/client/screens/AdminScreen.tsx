@@ -522,9 +522,6 @@ export default function AdminScreen() {
                                             )}
                                         </div>
                                         <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                            <Button size={'small'} onClick={() => openSubRuleModal(profile)}>
-                                                + Add Secondary Port
-                                            </Button>
                                             <Button
                                                 size={'small'}
                                                 color={'grey'}
@@ -982,8 +979,8 @@ export default function AdminScreen() {
                                 <div>
                                     <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>
                                         {editingSubRule
-                                            ? `Edit Secondary Port: "${editingSubRule.name}"`
-                                            : `Add Secondary Port to "${activeProfileForSubRule.name}"`}
+                                            ? `Edit Side Port: "${editingSubRule.name}"`
+                                            : `Add Side Port to "${activeProfileForSubRule.name}"`}
                                     </h3>
                                     <p className={'apa:text-xs apa:text-muted-foreground'}>
                                         Game Profile: <strong>{activeProfileForSubRule.name}</strong> ({activeLinkedEggs.map((e) => e.name).join(', ') || `Egg #${activeProfileForSubRule.egg_id}`})
@@ -1193,7 +1190,7 @@ export default function AdminScreen() {
                                         Cancel
                                     </Button>
                                     <Button type={'submit'} isLoading={submittingSubRule} disabled={isSubRuleReserved}>
-                                        {editingSubRule ? 'Update Secondary Port' : 'Save Secondary Port'}
+                                        {editingSubRule ? 'Update Side Port' : 'Save Side Port'}
                                     </Button>
                                 </div>
                             </form>
