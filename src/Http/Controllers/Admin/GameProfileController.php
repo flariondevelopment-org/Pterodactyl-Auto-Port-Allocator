@@ -53,8 +53,16 @@ class GameProfileController
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:255'],
             'primary_range_start' => ['nullable', 'integer', 'between:1024,65535'],
-            'primary_range_end' => ['nullable', 'integer', 'between:1024,65535', 'gte:primary_range_start'],
+            'primary_range_end' => ['nullable', 'integer', 'between:1024,65535'],
+            'primary_port_ranges' => ['nullable', 'array'],
+            'primary_port_ranges.*.start' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
+            'primary_port_ranges.*.end' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
         ]);
+
+        if (! empty($validated['primary_port_ranges'])) {
+            $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
+            $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
+        }
 
         $profile = GameProfile::query()->create($validated);
 
@@ -75,7 +83,15 @@ class GameProfileController
             'description' => ['nullable', 'string', 'max:255'],
             'primary_range_start' => ['nullable', 'integer', 'between:1024,65535'],
             'primary_range_end' => ['nullable', 'integer', 'between:1024,65535'],
+            'primary_port_ranges' => ['nullable', 'array'],
+            'primary_port_ranges.*.start' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
+            'primary_port_ranges.*.end' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
         ]);
+
+        if (array_key_exists('primary_port_ranges', $validated) && ! empty($validated['primary_port_ranges'])) {
+            $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
+            $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
+        }
 
         $profile->update($validated);
 
@@ -106,8 +122,11 @@ class GameProfileController
             'env_variable' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9_]+$/'],
             'allocation_type' => ['required', Rule::in([SubRule::TYPE_OFFSET, SubRule::TYPE_ANY_AVAILABLE, SubRule::TYPE_RANGE])],
             'offset_value' => ['nullable', 'required_if:allocation_type,offset', 'integer'],
-            'range_start' => ['nullable', 'required_if:allocation_type,range', 'integer', 'between:1024,65535'],
-            'range_end' => ['nullable', 'required_if:allocation_type,range', 'integer', 'between:1024,65535'],
+            'range_start' => ['nullable', 'integer', 'between:1024,65535'],
+            'range_end' => ['nullable', 'integer', 'between:1024,65535'],
+            'port_ranges' => ['nullable', 'array'],
+            'port_ranges.*.start' => ['required_with:port_ranges', 'integer', 'between:1024,65535'],
+            'port_ranges.*.end' => ['required_with:port_ranges', 'integer', 'between:1024,65535'],
             'auto_create_allocation' => ['boolean'],
             'is_required' => ['boolean'],
         ]);
@@ -116,6 +135,11 @@ class GameProfileController
         $this->assertEnvVariableNotReserved($envVar);
         $validated['env_variable'] = $envVar;
         $validated['profile_id'] = $profile->id;
+
+        if (! empty($validated['port_ranges'])) {
+            $validated['range_start'] = (int) $validated['port_ranges'][0]['start'];
+            $validated['range_end'] = (int) $validated['port_ranges'][0]['end'];
+        }
 
         $subRule = SubRule::query()->create($validated);
 
@@ -137,6 +161,9 @@ class GameProfileController
             'offset_value' => ['nullable', 'integer'],
             'range_start' => ['nullable', 'integer', 'between:1024,65535'],
             'range_end' => ['nullable', 'integer', 'between:1024,65535'],
+            'port_ranges' => ['nullable', 'array'],
+            'port_ranges.*.start' => ['required_with:port_ranges', 'integer', 'between:1024,65535'],
+            'port_ranges.*.end' => ['required_with:port_ranges', 'integer', 'between:1024,65535'],
             'auto_create_allocation' => ['sometimes', 'boolean'],
             'is_required' => ['sometimes', 'boolean'],
         ]);
@@ -145,6 +172,11 @@ class GameProfileController
             $envVar = strtoupper($validated['env_variable']);
             $this->assertEnvVariableNotReserved($envVar);
             $validated['env_variable'] = $envVar;
+        }
+
+        if (array_key_exists('port_ranges', $validated) && ! empty($validated['port_ranges'])) {
+            $validated['range_start'] = (int) $validated['port_ranges'][0]['start'];
+            $validated['range_end'] = (int) $validated['port_ranges'][0]['end'];
         }
 
         $subRule->update($validated);
@@ -190,7 +222,7 @@ class GameProfileController
         if ($envVariable === 'SERVER_PORT') {
             throw ValidationException::withMessages([
                 'env_variable' => [
-                    "SERVER_PORT is reserved as the server's default primary port. You can configure the primary port range in the game profile, while sub-rules are for additional secondary ports (e.g. RCON_PORT, QUERY_PORT, HTTP_PORT).",
+                    "SERVER_PORT is reserved as the server's default primary port. You can configure primary port ranges in the game profile, while sub-rules are for additional secondary ports (e.g. RCON_PORT, QUERY_PORT, HTTP_PORT).",
                 ],
             ]);
         }

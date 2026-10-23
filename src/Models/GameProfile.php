@@ -17,6 +17,7 @@ use Pterodactyl\Models\Egg;
  * @property string|null $description
  * @property int|null $primary_range_start
  * @property int|null $primary_range_end
+ * @property list<array{start: int, end: int}>|null $primary_port_ranges
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property-read Egg $egg
@@ -33,12 +34,14 @@ class GameProfile extends Model
         'description',
         'primary_range_start',
         'primary_range_end',
+        'primary_port_ranges',
     ];
 
     protected $casts = [
         'egg_id' => 'integer',
         'primary_range_start' => 'integer',
         'primary_range_end' => 'integer',
+        'primary_port_ranges' => 'array',
     ];
 
     public function egg(): BelongsTo
@@ -54,5 +57,21 @@ class GameProfile extends Model
     public function serverPorts(): HasMany
     {
         return $this->hasMany(ServerAllocatedPort::class, 'profile_id');
+    }
+
+    /**
+     * @return list<array{start: int, end: int}>
+     */
+    public function getAllowedPrimaryRanges(): array
+    {
+        if (! empty($this->primary_port_ranges) && is_array($this->primary_port_ranges)) {
+            return array_values(array_filter($this->primary_port_ranges, fn ($r) => isset($r['start'], $r['end']) && is_numeric($r['start']) && is_numeric($r['end'])));
+        }
+
+        if ($this->primary_range_start !== null && $this->primary_range_end !== null) {
+            return [['start' => (int) $this->primary_range_start, 'end' => (int) $this->primary_range_end]];
+        }
+
+        return [];
     }
 }

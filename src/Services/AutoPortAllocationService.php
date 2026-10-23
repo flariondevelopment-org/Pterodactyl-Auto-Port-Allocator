@@ -43,12 +43,24 @@ class AutoPortAllocationService
         /** @var GameProfile|null $profile */
         $profile = GameProfile::query()->where('egg_id', $eggId)->with('subRules')->first();
 
-        // Validate primary allocation against profile range if configured
-        if ($profile !== null && $profile->primary_range_start !== null && $profile->primary_range_end !== null) {
-            if ($primaryAllocation->port < $profile->primary_range_start || $primaryAllocation->port > $profile->primary_range_end) {
-                throw new DisplayException(
-                    "Primary port {$primaryAllocation->port} is outside the allowed primary port range ({$profile->primary_range_start}-{$profile->primary_range_end}) for \"{$profile->name}\"."
-                );
+        // Validate primary allocation against profile ranges if configured
+        if ($profile !== null) {
+            $allowedRanges = $profile->getAllowedPrimaryRanges();
+            if (! empty($allowedRanges)) {
+                $matchesAny = false;
+                foreach ($allowedRanges as $r) {
+                    if ($primaryAllocation->port >= $r['start'] && $primaryAllocation->port <= $r['end']) {
+                        $matchesAny = true;
+                        break;
+                    }
+                }
+
+                if (! $matchesAny) {
+                    $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $allowedRanges));
+                    throw new DisplayException(
+                        "Primary port {$primaryAllocation->port} is outside the allowed primary port ranges ({$rangesDisplay}) for \"{$profile->name}\"."
+                    );
+                }
             }
         }
 
@@ -323,7 +335,7 @@ class AutoPortAllocationService
     }
 
     /**
-     * Resolves an available allocation within a specified port range.
+     * Resolves an available allocation within specified port ranges.
      *
      * @param  list<int>  $claimedIds
      */
@@ -334,26 +346,37 @@ class AutoPortAllocationService
         array $claimedIds
     ): ?Allocation {
         $ip = $primaryAllocation->ip;
-        $start = $rule->range_start ?? 1024;
-        $end = $rule->range_end ?? 65535;
+        $ranges = $rule instanceof SubRule
+            ? $rule->getAllowedRanges()
+            : [['start' => $rule->range_start ?? 1024, 'end' => $rule->range_end ?? 65535]];
 
-        /** @var Allocation|null $allocation */
-        $allocation = Allocation::query()
-            ->where('node_id', $node->id)
-            ->where('ip', $ip)
-            ->whereBetween('port', [$start, $end])
-            ->whereNull('server_id')
-            ->whereNotIn('id', $claimedIds)
-            ->orderBy('port')
-            ->first();
+        foreach ($ranges as $r) {
+            $start = $r['start'];
+            $end = $r['end'];
 
-        if ($allocation === null && $rule->is_required) {
+            /** @var Allocation|null $allocation */
+            $allocation = Allocation::query()
+                ->where('node_id', $node->id)
+                ->where('ip', $ip)
+                ->whereBetween('port', [$start, $end])
+                ->whereNull('server_id')
+                ->whereNotIn('id', $claimedIds)
+                ->orderBy('port')
+                ->first();
+
+            if ($allocation !== null) {
+                return $allocation;
+            }
+        }
+
+        if ($rule->is_required) {
+            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
             throw new DisplayException(
-                "No free allocation found in range {$start}-{$end} for rule \"{$rule->name}\" on node #{$node->id} ({$ip})."
+                "No free allocation found in ranges ({$rangesDisplay}) for rule \"{$rule->name}\" on node #{$node->id} ({$ip})."
             );
         }
 
-        return $allocation;
+        return null;
     }
 
     /**

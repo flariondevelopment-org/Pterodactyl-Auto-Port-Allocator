@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int|null $offset_value
  * @property int|null $range_start
  * @property int|null $range_end
+ * @property list<array{start: int, end: int}>|null $port_ranges
  * @property bool $auto_create_allocation
  * @property bool $is_required
  * @property \Illuminate\Support\Carbon|null $created_at
@@ -41,6 +42,7 @@ class SubRule extends Model
         'offset_value',
         'range_start',
         'range_end',
+        'port_ranges',
         'auto_create_allocation',
         'is_required',
     ];
@@ -50,6 +52,7 @@ class SubRule extends Model
         'offset_value' => 'integer',
         'range_start' => 'integer',
         'range_end' => 'integer',
+        'port_ranges' => 'array',
         'auto_create_allocation' => 'boolean',
         'is_required' => 'boolean',
     ];
@@ -62,5 +65,24 @@ class SubRule extends Model
     public function serverPorts(): HasMany
     {
         return $this->hasMany(ServerAllocatedPort::class, 'sub_rule_id');
+    }
+
+    /**
+     * @return list<array{start: int, end: int}>
+     */
+    public function getAllowedRanges(): array
+    {
+        if (! empty($this->port_ranges) && is_array($this->port_ranges)) {
+            $filtered = array_values(array_filter($this->port_ranges, fn ($r) => isset($r['start'], $r['end']) && is_numeric($r['start']) && is_numeric($r['end'])));
+            if (! empty($filtered)) {
+                return $filtered;
+            }
+        }
+
+        if ($this->range_start !== null && $this->range_end !== null) {
+            return [['start' => (int) $this->range_start, 'end' => (int) $this->range_end]];
+        }
+
+        return [['start' => 1024, 'end' => 65535]];
     }
 }
