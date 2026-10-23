@@ -79,6 +79,7 @@ export default function AdminScreen() {
 
     // Profile modal state
     const [showProfileModal, setShowProfileModal] = useState(false);
+    const [editingProfile, setEditingProfile] = useState<GameProfile | null>(null);
     const [profileName, setProfileName] = useState('');
     const [profileEggId, setProfileEggId] = useState<number | ''>('');
     const [profileDescription, setProfileDescription] = useState('');
@@ -86,6 +87,7 @@ export default function AdminScreen() {
 
     // Sub-rule modal state
     const [activeProfileForSubRule, setActiveProfileForSubRule] = useState<GameProfile | null>(null);
+    const [editingSubRule, setEditingSubRule] = useState<SubRule | null>(null);
     const [subRuleName, setSubRuleName] = useState('');
     const [subRuleEnvVar, setSubRuleEnvVar] = useState('');
     const [subRuleVarOption, setSubRuleVarOption] = useState('');
@@ -151,7 +153,31 @@ export default function AdminScreen() {
         setSubRuleRanges((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== index) : [{ start: '', end: '' }]));
     };
 
-    const handleCreateProfile = async (e: React.FormEvent) => {
+    const openCreateProfileModal = () => {
+        setEditingProfile(null);
+        setProfileName('');
+        setProfileEggId('');
+        setProfileDescription('');
+        setPrimaryRanges([{ start: '', end: '' }]);
+        setShowProfileModal(true);
+    };
+
+    const openEditProfileModal = (profile: GameProfile) => {
+        setEditingProfile(profile);
+        setProfileName(profile.name);
+        setProfileEggId(profile.egg_id);
+        setProfileDescription(profile.description || '');
+        if (profile.primary_port_ranges && profile.primary_port_ranges.length > 0) {
+            setPrimaryRanges(profile.primary_port_ranges.map((r) => ({ start: r.start, end: r.end })));
+        } else if (profile.primary_range_start && profile.primary_range_end) {
+            setPrimaryRanges([{ start: profile.primary_range_start, end: profile.primary_range_end }]);
+        } else {
+            setPrimaryRanges([{ start: '', end: '' }]);
+        }
+        setShowProfileModal(true);
+    };
+
+    const handleSaveProfile = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!profileName.trim() || !profileEggId) {
             toast.error('Please enter a game name and select an Egg.');
@@ -171,16 +197,20 @@ export default function AdminScreen() {
                 primary_port_ranges: validRanges.length > 0 ? validRanges : null,
             };
 
-            const res = await http.post('/api/admin/extensions/auto-port-allocator/profiles', payload);
-            setProfiles((prev) => [...prev, res.data.profile]);
-            toast.success(`Game profile "${res.data.profile.name}" created!`);
+            if (editingProfile) {
+                const res = await http.put(`/api/admin/extensions/auto-port-allocator/profiles/${editingProfile.id}`, payload);
+                setProfiles((prev) =>
+                    prev.map((p) => (p.id === editingProfile.id ? res.data.profile : p))
+                );
+                toast.success(`Game profile "${res.data.profile.name}" updated!`);
+            } else {
+                const res = await http.post('/api/admin/extensions/auto-port-allocator/profiles', payload);
+                setProfiles((prev) => [...prev, res.data.profile]);
+                toast.success(`Game profile "${res.data.profile.name}" created!`);
+            }
 
-            // Reset profile form
-            setProfileName('');
-            setProfileEggId('');
-            setProfileDescription('');
-            setPrimaryRanges([{ start: '', end: '' }]);
             setShowProfileModal(false);
+            setEditingProfile(null);
         } catch (err) {
             toast.error(httpErrorToHuman(err));
         } finally {
@@ -204,12 +234,34 @@ export default function AdminScreen() {
 
     const openSubRuleModal = (profile: GameProfile) => {
         setActiveProfileForSubRule(profile);
+        setEditingSubRule(null);
         setSubRuleName('');
         setSubRuleEnvVar('');
         setSubRuleVarOption('');
         setSubRuleAllocType('offset');
         setSubRuleOffset(2);
         setSubRuleRanges([{ start: 28000, end: 28100 }]);
+        setSubRuleAutoCreate(true);
+        setSubRuleRequired(true);
+    };
+
+    const openEditSubRuleModal = (profile: GameProfile, subRule: SubRule) => {
+        setActiveProfileForSubRule(profile);
+        setEditingSubRule(subRule);
+        setSubRuleName(subRule.name);
+        setSubRuleEnvVar(subRule.env_variable);
+        setSubRuleVarOption(subRule.env_variable);
+        setSubRuleAllocType(subRule.allocation_type);
+        setSubRuleOffset(subRule.offset_value ?? 2);
+        if (subRule.port_ranges && subRule.port_ranges.length > 0) {
+            setSubRuleRanges(subRule.port_ranges.map((r) => ({ start: r.start, end: r.end })));
+        } else if (subRule.range_start && subRule.range_end) {
+            setSubRuleRanges([{ start: subRule.range_start, end: subRule.range_end }]);
+        } else {
+            setSubRuleRanges([{ start: 28000, end: 28100 }]);
+        }
+        setSubRuleAutoCreate(subRule.auto_create_allocation);
+        setSubRuleRequired(subRule.is_required);
     };
 
     const handleSubRuleVarSelect = (val: string) => {
@@ -228,7 +280,7 @@ export default function AdminScreen() {
     const isSubRuleReserved = RESERVED_VARIABLES.includes(subRuleEnvVar.trim().toUpperCase());
     const isSubRuleServerPort = subRuleEnvVar.trim().toUpperCase() === 'SERVER_PORT';
 
-    const handleCreateSubRule = async (e: React.FormEvent) => {
+    const handleSaveSubRule = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!activeProfileForSubRule) return;
 
@@ -264,26 +316,50 @@ export default function AdminScreen() {
                 is_required: subRuleRequired,
             };
 
-            const res = await http.post(
-                `/api/admin/extensions/auto-port-allocator/profiles/${activeProfileForSubRule.id}/sub-rules`,
-                payload
-            );
+            if (editingSubRule) {
+                const res = await http.put(
+                    `/api/admin/extensions/auto-port-allocator/sub-rules/${editingSubRule.id}`,
+                    payload
+                );
 
-            // Update local state
-            setProfiles((prev) =>
-                prev.map((p) => {
-                    if (p.id === activeProfileForSubRule.id) {
-                        return {
-                            ...p,
-                            sub_rules: [...(p.sub_rules || []), res.data.sub_rule],
-                        };
-                    }
-                    return p;
-                })
-            );
+                setProfiles((prev) =>
+                    prev.map((p) => {
+                        if (p.id === activeProfileForSubRule.id) {
+                            return {
+                                ...p,
+                                sub_rules: (p.sub_rules || []).map((sr) =>
+                                    sr.id === editingSubRule.id ? res.data.sub_rule : sr
+                                ),
+                            };
+                        }
+                        return p;
+                    })
+                );
 
-            toast.success(`Secondary port "${res.data.sub_rule.name}" added to ${activeProfileForSubRule.name}!`);
+                toast.success(`Secondary port "${res.data.sub_rule.name}" updated!`);
+            } else {
+                const res = await http.post(
+                    `/api/admin/extensions/auto-port-allocator/profiles/${activeProfileForSubRule.id}/sub-rules`,
+                    payload
+                );
+
+                setProfiles((prev) =>
+                    prev.map((p) => {
+                        if (p.id === activeProfileForSubRule.id) {
+                            return {
+                                ...p,
+                                sub_rules: [...(p.sub_rules || []), res.data.sub_rule],
+                            };
+                        }
+                        return p;
+                    })
+                );
+
+                toast.success(`Secondary port "${res.data.sub_rule.name}" added to ${activeProfileForSubRule.name}!`);
+            }
+
             setActiveProfileForSubRule(null);
+            setEditingSubRule(null);
         } catch (err) {
             toast.error(httpErrorToHuman(err));
         } finally {
@@ -363,7 +439,7 @@ export default function AdminScreen() {
                             {profiles.length} game profile(s) defined.
                         </p>
                     </div>
-                    <Button onClick={() => setShowProfileModal(true)}>
+                    <Button onClick={openCreateProfileModal}>
                         + Create Game Profile
                     </Button>
                 </div>
@@ -389,7 +465,7 @@ export default function AdminScreen() {
                             return (
                                 <div key={profile.id} className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:shadow-sm apa:p-5 apa:space-y-4'}>
                                     {/* Profile Header */}
-                                    <div className={'apa:flex apa:flex-wrap apa:justify-between apa:items-start apa:gap-4 apa:pb-3 apa:border-b apa:border-muted'}>
+                                    <div className={'apa:flex apa:flex-wrap apa:justify-between personal-header apa:items-start apa:gap-4 apa:pb-3 apa:border-b apa:border-muted'}>
                                         <div>
                                             <div className={'apa:flex apa:items-center apa:gap-3 apa:flex-wrap'}>
                                                 <h3 className={'apa:text-lg apa:font-bold apa:text-foreground'}>{profile.name}</h3>
@@ -415,8 +491,15 @@ export default function AdminScreen() {
                                                 + Add Secondary Port
                                             </Button>
                                             <button
+                                                onClick={() => openEditProfileModal(profile)}
+                                                className={'apa:text-primary apa:text-xs apa:font-semibold apa:p-2 apa:hover:underline apa:cursor-pointer'}
+                                            >
+                                                Edit Game
+                                            </button>
+                                            <span className={'apa:text-muted'}>|</span>
+                                            <button
                                                 onClick={() => handleDeleteProfile(profile.id)}
-                                                className={'apa:text-destructive apa:text-xs apa:font-medium apa:p-2 apa:hover:underline'}
+                                                className={'apa:text-destructive apa:text-xs apa:font-semibold apa:p-2 apa:hover:underline apa:cursor-pointer'}
                                             >
                                                 Delete Game
                                             </button>
@@ -424,10 +507,10 @@ export default function AdminScreen() {
                                     </div>
 
                                     {/* Side Ports Table Inside The Box */}
-                                    <div className={'apa:rounded-lg apa:border apa:border-muted apa:overflow-hidden apa:bg-muted/10'}>
-                                        <div className={'apa:px-4 apa:py-3 apa:bg-muted/20 apa:border-b apa:border-muted apa:flex apa:justify-between apa:items-center'}>
+                                    <div className={'apa:rounded-lg apa:border-2 apa:border-slate-700 apa:bg-slate-900/60 apa:overflow-hidden apa:shadow-md'}>
+                                        <div className={'apa:px-4 apa:py-3 apa:bg-slate-800/90 apa:border-b-2 personal-table-header apa:border-slate-700 apa:flex apa:justify-between apa:items-center'}>
                                             <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                <span className={'apa:text-xs apa:font-bold apa:uppercase apa:tracking-wider apa:text-foreground'}>
+                                                <span className={'apa:text-xs apa:font-bold apa:uppercase apa:tracking-wider apa:text-slate-200'}>
                                                     Game Ports & Side Ports Configuration
                                                 </span>
                                                 <Badge tone={'neutral'} variant={'soft'}>
@@ -442,63 +525,71 @@ export default function AdminScreen() {
                                         <div className={'apa:overflow-x-auto'}>
                                             <table className={'apa:w-full apa:text-left apa:border-collapse'}>
                                                 <thead>
-                                                    <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase apa:bg-muted/30'}>
-                                                        <th className={'apa:py-3 apa:px-4'}>Service / Role</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Environment Key</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Port Type</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Port Formula / Range(s)</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Auto-Create</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Required</th>
-                                                        <th className={'apa:py-3 apa:px-4'}>Actions</th>
+                                                    <tr className={'apa:border-b-2 apa:border-slate-700 apa:bg-slate-800/70 apa:text-xs apa:text-slate-300 apa:uppercase apa:tracking-wider'}>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Service / Role</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Environment Key</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 personal-type apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Port Type</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Port Formula / Range(s)</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Auto-Create</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:border-r apa:border-slate-700/80 last:apa:border-r-0 apa:whitespace-nowrap'}>Required</th>
+                                                        <th className={'apa:py-3.5 apa:px-4 apa:font-semibold apa:whitespace-nowrap'}>Actions</th>
                                                     </tr>
                                                 </thead>
-                                                <tbody className={'apa:divide-y apa:divide-muted apa:text-sm'}>
+                                                <tbody className={'apa:text-sm'}>
                                                     {/* Primary Game Port (Base Allocation) */}
-                                                    <tr className={'apa:bg-card/40 apa:hover:bg-muted/20'}>
-                                                        <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
-                                                            <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                                <span>Primary Game Port</span>
+                                                    <tr className={'apa:border-b apa:border-slate-700/60 apa:bg-slate-800/20 apa:hover:bg-slate-800/40 apa:transition-colors'}>
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:font-medium apa:border-r apa:border-slate-700/50'}>
+                                                            <div className={'apa:flex apa:items-center apa:gap-2 apa:whitespace-nowrap'}>
+                                                                <span className={'apa:text-slate-100 apa:font-semibold'}>Primary Game Port</span>
                                                                 <Badge tone={'accent'} variant={'solid'}>Primary</Badge>
                                                             </div>
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4'}>
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
                                                             <span className={'apa:font-mono apa:text-xs apa:font-bold apa:text-primary'}>
                                                                 SERVER_PORT
                                                             </span>
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4'}>
+                                                        <td className={'apa:py-3.5 personal-type apa:px-4 apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
                                                             <Badge tone={'neutral'} variant={'soft'}>Primary Range</Badge>
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-xs'}>
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:font-mono apa:text-xs apa:text-slate-200 apa:border-r apa:border-slate-700/50'}>
                                                             {primaryDisplay}
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs apa:text-muted-foreground'}>
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:text-xs apa:text-slate-400 apa:border-r apa:border-slate-700/50'}>
                                                             —
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
-                                                            <span className={'apa:text-foreground apa:font-medium'}>Always Required</span>
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:text-xs apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
+                                                            <span className={'apa:text-slate-200 apa:font-medium'}>Always Required</span>
                                                         </td>
-                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs apa:text-muted-foreground'}>
-                                                            Default Port
+                                                        <td className={'apa:py-3.5 apa:px-4 apa:whitespace-nowrap'}>
+                                                            <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                                <button
+                                                                    onClick={() => openEditProfileModal(profile)}
+                                                                    className={'apa:text-primary apa:text-xs apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                                <span className={'apa:text-slate-500 apa:text-xs'}>| Base Port</span>
+                                                            </div>
                                                         </td>
                                                     </tr>
 
                                                     {/* Secondary Side Ports */}
                                                     {profile.sub_rules && profile.sub_rules.length > 0 ? (
                                                         profile.sub_rules.map((subRule) => (
-                                                            <tr key={subRule.id} className={'apa:hover:bg-muted/20'}>
-                                                                <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
-                                                                    <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                                        <span>{subRule.name}</span>
+                                                            <tr key={subRule.id} className={'apa:border-b apa:border-slate-700/60 last:apa:border-b-0 apa:hover:bg-slate-800/40 apa:transition-colors'}>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:font-medium apa:border-r apa:border-slate-700/50'}>
+                                                                    <div className={'apa:flex personal-badge apa:items-center apa:gap-2 apa:whitespace-nowrap'}>
+                                                                        <span className={'apa:text-slate-200'}>{subRule.name}</span>
                                                                         <Badge tone={'neutral'} variant={'soft'}>Side Port</Badge>
                                                                     </div>
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4'}>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
                                                                     <span className={'apa:font-mono apa:text-xs apa:font-bold apa:text-primary'}>
                                                                         {subRule.env_variable}
                                                                     </span>
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4'}>
+                                                                <td className={'apa:py-3.5 personal-type apa:px-4 apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
                                                                     <Badge tone={'accent'} variant={'soft'}>
                                                                         {subRule.allocation_type === 'offset'
                                                                             ? 'Fixed Offset'
@@ -507,7 +598,7 @@ export default function AdminScreen() {
                                                                               : 'Any Available'}
                                                                     </Badge>
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-xs'}>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:font-mono apa:text-xs apa:text-slate-200 apa:border-r apa:border-slate-700/50'}>
                                                                     {subRule.allocation_type === 'offset' && (
                                                                         <span className={'apa:font-semibold'}>SERVER_PORT + {subRule.offset_value}</span>
                                                                     )}
@@ -521,40 +612,49 @@ export default function AdminScreen() {
                                                                         </span>
                                                                     )}
                                                                     {subRule.allocation_type === 'any_available' && (
-                                                                        <span className={'apa:text-muted-foreground'}>Any Free Port</span>
+                                                                        <span className={'apa:text-slate-400'}>Any Free Port</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:text-xs apa:border-r apa:border-slate-700/50'}>
                                                                     {subRule.auto_create_allocation ? (
-                                                                        <span className={'apa:text-success apa:font-medium'}>Yes</span>
+                                                                        <span className={'apa:text-emerald-400 apa:font-semibold'}>Yes</span>
                                                                     ) : (
-                                                                        <span className={'apa:text-muted-foreground'}>No</span>
+                                                                        <span className={'apa:text-slate-400'}>No</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:text-xs apa:border-r apa:border-slate-700/50 apa:whitespace-nowrap'}>
                                                                     {subRule.is_required ? (
-                                                                        <span className={'apa:text-foreground apa:font-medium'}>Required</span>
+                                                                        <span className={'apa:text-slate-200 apa:font-medium'}>Required</span>
                                                                     ) : (
-                                                                        <span className={'apa:text-muted-foreground'}>Optional</span>
+                                                                        <span className={'apa:text-slate-400'}>Optional</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-3 apa:px-4'}>
-                                                                    <button
-                                                                        onClick={() => handleDeleteSubRule(profile.id, subRule.id)}
-                                                                        className={'apa:text-destructive apa:text-xs apa:font-medium apa:hover:underline'}
-                                                                    >
-                                                                        Delete
-                                                                    </button>
+                                                                <td className={'apa:py-3.5 apa:px-4 apa:whitespace-nowrap'}>
+                                                                    <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                                        <button
+                                                                            onClick={() => openEditSubRuleModal(profile, subRule)}
+                                                                            className={'apa:text-primary apa:text-xs personal-action apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                        >
+                                                                            Edit
+                                                                        </button>
+                                                                        <span className={'apa:text-slate-600'}>|</span>
+                                                                        <button
+                                                                            onClick={() => handleDeleteSubRule(profile.id, subRule.id)}
+                                                                            className={'apa:text-destructive apa:text-xs personal-action apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                        >
+                                                                            Delete
+                                                                        </button>
+                                                                    </div>
                                                                 </td>
                                                             </tr>
                                                         ))
                                                     ) : (
                                                         <tr>
-                                                            <td colSpan={7} className={'apa:py-6 apa:px-4 apa:text-center apa:text-xs apa:text-muted-foreground'}>
+                                                            <td colSpan={7} className={'apa:py-6 apa:px-4 apa:text-center apa:text-xs apa:text-slate-400'}>
                                                                 No side ports configured yet for {profile.name}.{' '}
                                                                 <button
                                                                     onClick={() => openSubRuleModal(profile)}
-                                                                    className={'apa:text-primary apa:font-semibold apa:hover:underline apa:ml-1'}
+                                                                    className={'apa:text-primary apa:font-semibold apa:hover:underline apa:ml-1 apa:cursor-pointer'}
                                                                 >
                                                                     + Add Side Port
                                                                 </button>{' '}
@@ -573,7 +673,7 @@ export default function AdminScreen() {
                 )}
 
                 {/* ======================================================== */}
-                {/* POP-UP MODAL: CREATE GAME PROFILE                        */}
+                {/* POP-UP MODAL: CREATE OR EDIT GAME PROFILE                */}
                 {/* ======================================================== */}
                 {showProfileModal && (
                     <div className={'apa:fixed apa:inset-0 apa:z-50 apa:flex apa:items-center apa:justify-center apa:p-4 apa:bg-black/75 apa:backdrop-blur-sm'}>
@@ -581,21 +681,26 @@ export default function AdminScreen() {
                             {/* Modal Header */}
                             <div className={'apa:p-4 apa:border-b apa:border-muted apa:flex apa:justify-between apa:items-center apa:bg-muted/20'}>
                                 <div>
-                                    <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>Create New Game Profile</h3>
+                                    <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>
+                                        {editingProfile ? `Edit Game Profile: "${editingProfile.name}"` : 'Create New Game Profile'}
+                                    </h3>
                                     <p className={'apa:text-xs apa:text-muted-foreground'}>
                                         Configure a game template with primary port range restrictions.
                                     </p>
                                 </div>
                                 <button
-                                    onClick={() => setShowProfileModal(false)}
-                                    className={'apa:text-muted-foreground apa:hover:text-foreground apa:text-lg apa:font-bold apa:p-1'}
+                                    onClick={() => {
+                                        setShowProfileModal(false);
+                                        setEditingProfile(null);
+                                    }}
+                                    className={'apa:text-muted-foreground apa:hover:text-foreground apa:text-lg apa:font-bold apa:p-1 apa:cursor-pointer'}
                                 >
                                     ✕
                                 </button>
                             </div>
 
                             {/* Modal Body */}
-                            <form onSubmit={handleCreateProfile} className={'apa:p-6 apa:space-y-4'}>
+                            <form onSubmit={handleSaveProfile} className={'apa:p-6 apa:space-y-4'}>
                                 <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-2 apa:gap-4'}>
                                     {/* Game Profile Name */}
                                     <div>
@@ -661,7 +766,7 @@ export default function AdminScreen() {
                                         <button
                                             type={'button'}
                                             onClick={addPrimaryRange}
-                                            className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline'}
+                                            className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline apa:cursor-pointer'}
                                         >
                                             + Add Another Range
                                         </button>
@@ -669,7 +774,7 @@ export default function AdminScreen() {
 
                                     <div className={'apa:space-y-2'}>
                                         {primaryRanges.map((range, idx) => (
-                                            <div key={idx} className={'apa:flex apa:items-center apa:gap-2'}>
+                                            <div key={idx} className={'apa:flex personal-range apa:items-center apa:gap-2'}>
                                                 <input
                                                     type={'number'}
                                                     value={range.start}
@@ -689,7 +794,7 @@ export default function AdminScreen() {
                                                     <button
                                                         type={'button'}
                                                         onClick={() => removePrimaryRange(idx)}
-                                                        className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80'}
+                                                        className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80 apa:cursor-pointer'}
                                                         title={'Remove Range'}
                                                     >
                                                         ✕
@@ -702,11 +807,16 @@ export default function AdminScreen() {
 
                                 {/* Modal Footer */}
                                 <div className={'apa:flex apa:justify-end apa:gap-2 apa:pt-2 apa:border-t apa:border-muted'}>
-                                    <Button onClick={() => setShowProfileModal(false)}>
+                                    <Button
+                                        onClick={() => {
+                                            setShowProfileModal(false);
+                                            setEditingProfile(null);
+                                        }}
+                                    >
                                         Cancel
                                     </Button>
                                     <Button type={'submit'} isLoading={submittingProfile}>
-                                        Create Game Profile
+                                        {editingProfile ? 'Update Game Profile' : 'Create Game Profile'}
                                     </Button>
                                 </div>
                             </form>
@@ -715,31 +825,36 @@ export default function AdminScreen() {
                 )}
 
                 {/* ======================================================== */}
-                {/* POP-UP MODAL: ADD SECONDARY PORT (SUB-RULE)              */}
+                {/* POP-UP MODAL: ADD OR EDIT SECONDARY PORT (SUB-RULE)      */}
                 {/* ======================================================== */}
                 {activeProfileForSubRule && (
                     <div className={'apa:fixed apa:inset-0 apa:z-50 apa:flex apa:items-center apa:justify-center apa:p-4 apa:bg-black/75 apa:backdrop-blur-sm'}>
-                        <div className={'apa:bg-card apa:border apa:border-muted apa:rounded-xl apa:shadow-2xl apa:max-w-2xl apa:w-full apa:overflow-hidden apa:animate-in apa:fade-in apa:zoom-in-95'}>
+                        <div className={'apa:bg-card apa:border apa:border-muted apa:rounded-xl apa:shadow-2xl apa:max-w-2xl apa:w-full apa:overflow-hidden personal-subrule-modal apa:animate-in apa:fade-in apa:zoom-in-95'}>
                             {/* Modal Header */}
                             <div className={'apa:p-4 apa:border-b apa:border-muted apa:flex apa:justify-between apa:items-center apa:bg-muted/20'}>
                                 <div>
                                     <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>
-                                        Add Secondary Port to "{activeProfileForSubRule.name}"
+                                        {editingSubRule
+                                            ? `Edit Secondary Port: "${editingSubRule.name}"`
+                                            : `Add Secondary Port to "${activeProfileForSubRule.name}"`}
                                     </h3>
                                     <p className={'apa:text-xs apa:text-muted-foreground'}>
-                                        Egg: {activeProfileForSubRule.egg?.name || `Egg #${activeProfileForSubRule.egg_id}`}
+                                        Game Profile: {activeProfileForSubRule.name} (Egg #{activeProfileForSubRule.egg_id})
                                     </p>
                                 </div>
                                 <button
-                                    onClick={() => setActiveProfileForSubRule(null)}
-                                    className={'apa:text-muted-foreground apa:hover:text-foreground apa:text-lg apa:font-bold apa:p-1'}
+                                    onClick={() => {
+                                        setActiveProfileForSubRule(null);
+                                        setEditingSubRule(null);
+                                    }}
+                                    className={'apa:text-muted-foreground apa:hover:text-foreground apa:text-lg apa:font-bold apa:p-1 apa:cursor-pointer'}
                                 >
                                     ✕
                                 </button>
                             </div>
 
                             {/* Modal Body */}
-                            <form onSubmit={handleCreateSubRule} className={'apa:p-6 apa:space-y-4'}>
+                            <form onSubmit={handleSaveSubRule} className={'apa:p-6 apa:space-y-4'}>
                                 <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-2 apa:gap-4'}>
                                     {/* Target Egg Variable */}
                                     <div>
@@ -751,7 +866,7 @@ export default function AdminScreen() {
                                                 <select
                                                     value={subRuleVarOption}
                                                     onChange={(e) => handleSubRuleVarSelect(e.target.value)}
-                                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background personal-input apa:p-2 apa:text-sm apa:font-mono'}
                                                     required
                                                 >
                                                     <option value={''}>Select an Egg Variable...</option>
@@ -768,7 +883,7 @@ export default function AdminScreen() {
                                                         value={subRuleEnvVar}
                                                         onChange={(e) => setSubRuleEnvVar(e.target.value.toUpperCase())}
                                                         placeholder={'e.g. HTTP_PORT, ASE_PORT'}
-                                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background personal-input apa:p-2 apa:text-sm apa:font-mono'}
                                                         required
                                                     />
                                                 )}
@@ -779,7 +894,7 @@ export default function AdminScreen() {
                                                 value={subRuleEnvVar}
                                                 onChange={(e) => setSubRuleEnvVar(e.target.value.toUpperCase())}
                                                 placeholder={'e.g. HTTP_PORT, ASE_PORT, RCON_PORT'}
-                                                className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background personal-input apa:p-2 apa:text-sm apa:font-mono'}
                                                 required
                                             />
                                         )}
@@ -787,7 +902,7 @@ export default function AdminScreen() {
 
                                     {/* Service Name */}
                                     <div>
-                                        <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        <label className={'apa:block apa:text-xs personal-label apa:font-medium apa:text-muted-foreground apa:mb-1'}>
                                             Service / Port Name
                                         </label>
                                         <input
@@ -795,7 +910,7 @@ export default function AdminScreen() {
                                             value={subRuleName}
                                             onChange={(e) => setSubRuleName(e.target.value)}
                                             placeholder={'e.g. MTA Web HTTP, ASE Query'}
-                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                            className={'apa:w-full apa:rounded apa:border apa:border-muted personal-input apa:bg-background apa:p-2 apa:text-sm'}
                                             required
                                         />
                                     </div>
@@ -803,13 +918,13 @@ export default function AdminScreen() {
 
                                 {/* Strategy */}
                                 <div>
-                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                    <label className={'apa:block apa:text-xs personal-label apa:font-medium apa:text-muted-foreground apa:mb-1'}>
                                         Allocation Mode
                                     </label>
                                     <select
                                         value={subRuleAllocType}
                                         onChange={(e) => setSubRuleAllocType(e.target.value as any)}
-                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted personal-input apa:bg-background apa:p-2 apa:text-sm'}
                                     >
                                         <option value={'offset'}>Fixed Offset from SERVER_PORT</option>
                                         <option value={'range'}>Specific Port Range(s)</option>
@@ -828,7 +943,7 @@ export default function AdminScreen() {
                                             value={subRuleOffset}
                                             onChange={(e) => setSubRuleOffset(Number(e.target.value))}
                                             placeholder={'e.g. 2 for MTA HTTP, 123 for ASE'}
-                                            className={'apa:w-48 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                            className={'apa:w-48 apa:rounded apa:border apa:border-muted personal-input apa:bg-background apa:p-2 apa:text-sm'}
                                             required
                                         />
                                         <p className={'apa:text-xs apa:text-muted-foreground apa:mt-1'}>
@@ -852,7 +967,7 @@ export default function AdminScreen() {
                                             <button
                                                 type={'button'}
                                                 onClick={addSubRuleRange}
-                                                className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline'}
+                                                className={'apa:text-xs apa:font-medium apa:text-primary apa:hover:underline apa:cursor-pointer'}
                                             >
                                                 + Add Another Range
                                             </button>
@@ -866,7 +981,7 @@ export default function AdminScreen() {
                                                         value={range.start}
                                                         onChange={(e) => updateSubRuleRange(idx, 'start', e.target.value)}
                                                         placeholder={'Start (e.g. 28016)'}
-                                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted personal-input apa:bg-background apa:p-2 apa:text-sm'}
                                                         required
                                                     />
                                                     <span className={'apa:text-muted-foreground apa:text-xs'}>to</span>
@@ -875,14 +990,14 @@ export default function AdminScreen() {
                                                         value={range.end}
                                                         onChange={(e) => updateSubRuleRange(idx, 'end', e.target.value)}
                                                         placeholder={'End (e.g. 28025)'}
-                                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted personal-input apa:bg-background apa:p-2 apa:text-sm'}
                                                         required
                                                     />
                                                     {subRuleRanges.length > 1 && (
                                                         <button
                                                             type={'button'}
                                                             onClick={() => removeSubRuleRange(idx)}
-                                                            className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80'}
+                                                            className={'apa:text-destructive apa:text-sm apa:p-1 apa:hover:opacity-80 apa:cursor-pointer'}
                                                             title={'Remove Range'}
                                                         >
                                                             ✕
@@ -905,7 +1020,7 @@ export default function AdminScreen() {
                                         />
                                         <span>Auto-create port on node if missing</span>
                                     </label>
-                                    <label className={'apa:flex apa:items-center apa:gap-2 apa:text-sm'}>
+                                    <label className={'apa:flex apa:items-center personal-checkbox apa:gap-2 apa:text-sm'}>
                                         <input
                                             type={'checkbox'}
                                             checked={subRuleRequired}
@@ -918,11 +1033,16 @@ export default function AdminScreen() {
 
                                 {/* Modal Footer */}
                                 <div className={'apa:flex apa:justify-end apa:gap-2 apa:pt-2 apa:border-t apa:border-muted'}>
-                                    <Button onClick={() => setActiveProfileForSubRule(null)}>
+                                    <Button
+                                        onClick={() => {
+                                            setActiveProfileForSubRule(null);
+                                            setEditingSubRule(null);
+                                        }}
+                                    >
                                         Cancel
                                     </Button>
                                     <Button type={'submit'} isLoading={submittingSubRule} disabled={isSubRuleReserved}>
-                                        Save Secondary Port
+                                        {editingSubRule ? 'Update Secondary Port' : 'Save Secondary Port'}
                                     </Button>
                                 </div>
                             </form>
