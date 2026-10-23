@@ -10,6 +10,7 @@ import {
     TitledGreyBox,
     toast,
 } from '@pterodactyl/sdk';
+import { Pencil, Trash2 } from 'lucide-react';
 
 interface EggVariable {
     id: number;
@@ -490,19 +491,27 @@ export default function AdminScreen() {
                                             <Button size={'small'} onClick={() => openSubRuleModal(profile)}>
                                                 + Add Secondary Port
                                             </Button>
-                                            <button
+                                            <Button
+                                                size={'small'}
+                                                color={'grey'}
+                                                isSecondary
                                                 onClick={() => openEditProfileModal(profile)}
-                                                className={'apa:text-primary apa:text-xs apa:font-semibold apa:p-2 apa:hover:underline apa:cursor-pointer'}
+                                                className={'apa:flex apa:items-center apa:gap-1.5'}
+                                                title={'Edit Game Profile'}
                                             >
-                                                Edit Game
-                                            </button>
-                                            <span className={'apa:text-muted'}>|</span>
-                                            <button
+                                                <Pencil className={'apa:w-3.5 apa:h-3.5'} />
+                                                <span>Edit Game</span>
+                                            </Button>
+                                            <Button
+                                                size={'small'}
+                                                color={'red'}
                                                 onClick={() => handleDeleteProfile(profile.id)}
-                                                className={'apa:text-destructive apa:text-xs apa:font-semibold apa:p-2 apa:hover:underline apa:cursor-pointer'}
+                                                className={'apa:flex apa:items-center apa:gap-1.5'}
+                                                title={'Delete Game Profile'}
                                             >
-                                                Delete Game
-                                            </button>
+                                                <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
+                                                <span>Delete</span>
+                                            </Button>
                                         </div>
                                     </div>
 
@@ -563,13 +572,17 @@ export default function AdminScreen() {
                                                         </td>
                                                         <td className={'apa:py-3.5 apa:px-4 apa:whitespace-nowrap'}>
                                                             <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                                <button
+                                                                <Button
+                                                                    size={'xsmall'}
+                                                                    color={'grey'}
+                                                                    isSecondary
                                                                     onClick={() => openEditProfileModal(profile)}
-                                                                    className={'apa:text-primary apa:text-xs apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                    className={'apa:flex apa:items-center apa:gap-1.5'}
+                                                                    title={'Edit Game & Primary Port'}
                                                                 >
-                                                                    Edit
-                                                                </button>
-                                                                <span className={'apa:text-slate-500 apa:text-xs'}>| Base Port</span>
+                                                                    <Pencil className={'apa:w-3.5 apa:h-3.5'} />
+                                                                    <span>Edit</span>
+                                                                </Button>
                                                             </div>
                                                         </td>
                                                     </tr>
@@ -631,19 +644,27 @@ export default function AdminScreen() {
                                                                 </td>
                                                                 <td className={'apa:py-3.5 apa:px-4 apa:whitespace-nowrap'}>
                                                                     <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                                        <button
+                                                                        <Button
+                                                                            size={'xsmall'}
+                                                                            color={'grey'}
+                                                                            isSecondary
                                                                             onClick={() => openEditSubRuleModal(profile, subRule)}
-                                                                            className={'apa:text-primary apa:text-xs personal-action apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                            className={'apa:flex apa:items-center apa:gap-1.5'}
+                                                                            title={'Edit Side Port Rule'}
                                                                         >
-                                                                            Edit
-                                                                        </button>
-                                                                        <span className={'apa:text-slate-600'}>|</span>
-                                                                        <button
+                                                                            <Pencil className={'apa:w-3.5 apa:h-3.5'} />
+                                                                            <span>Edit</span>
+                                                                        </Button>
+                                                                        <Button
+                                                                            size={'xsmall'}
+                                                                            color={'red'}
                                                                             onClick={() => handleDeleteSubRule(profile.id, subRule.id)}
-                                                                            className={'apa:text-destructive apa:text-xs personal-action apa:font-semibold apa:hover:underline apa:cursor-pointer'}
+                                                                            className={'apa:flex apa:items-center apa:gap-1.5'}
+                                                                            title={'Delete Side Port Rule'}
                                                                         >
-                                                                            Delete
-                                                                        </button>
+                                                                            <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
+                                                                            <span>Delete</span>
+                                                                        </Button>
                                                                     </div>
                                                                 </td>
                                                             </tr>
