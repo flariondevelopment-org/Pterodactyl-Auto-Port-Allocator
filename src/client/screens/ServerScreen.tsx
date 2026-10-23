@@ -124,6 +124,14 @@ export default function ServerScreen() {
                     </Alert>
                 )}
 
+                {/* Sub-Rule Information Notice */}
+                <div className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:p-4 apa:text-xs apa:text-muted-foreground'}>
+                    <p>
+                        <strong className={'apa:text-foreground'}>Primary Game Port:</strong> Bound to Pterodactyl's primary allocation (<code className={'apa:font-mono'}>SERVER_PORT</code>).
+                        Additional services (such as RCON, Query, Web HTTP) are provisioned via <strong>Egg Sub-Rules</strong> and automatically synchronized with the server's environment variables.
+                    </p>
+                </div>
+
                 <TitledGreyBox title={'Allocated Game Ports & Services'}>
                     <div className={'apa:overflow-x-auto'}>
                         <table className={'apa:w-full apa:text-left apa:border-collapse'}>
@@ -143,11 +151,16 @@ export default function ServerScreen() {
                                         <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
                                             <div className={'apa:flex apa:items-center apa:gap-2'}>
                                                 <span>Primary Game Port</span>
-                                                <Badge tone={'accent'} variant={'solid'}>Primary</Badge>
+                                                <Badge tone={'accent'} variant={'solid'}>Primary / Default</Badge>
                                             </div>
                                         </td>
-                                        <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm apa:text-primary'}>
-                                            SERVER_PORT
+                                        <td className={'apa:py-3 apa:px-4'}>
+                                            <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                <span className={'apa:font-mono apa:text-sm apa:text-primary apa:font-semibold'}>
+                                                    SERVER_PORT
+                                                </span>
+                                                <Badge tone={'neutral'} variant={'soft'}>Base Port</Badge>
+                                            </div>
                                         </td>
                                         <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm'}>
                                             {data.primary_allocation.alias || data.primary_allocation.ip}
@@ -175,8 +188,17 @@ export default function ServerScreen() {
                                                         <span className={'apa:text-muted-foreground'}>Additional Allocation</span>
                                                     )}
                                                 </td>
-                                                <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm apa:text-primary'}>
-                                                    {role ? role.env_variable : '—'}
+                                                <td className={'apa:py-3 apa:px-4'}>
+                                                    {role ? (
+                                                        <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                            <span className={'apa:font-mono apa:text-sm apa:text-primary'}>
+                                                                {role.env_variable}
+                                                            </span>
+                                                            <Badge tone={'accent'} variant={'soft'}>Sub-Rule</Badge>
+                                                        </div>
+                                                    ) : (
+                                                        <span className={'apa:font-mono apa:text-sm apa:text-muted-foreground'}>—</span>
+                                                    )}
                                                 </td>
                                                 <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm'}>
                                                     {allocation.alias || allocation.ip}

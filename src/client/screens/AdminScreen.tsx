@@ -3,7 +3,6 @@ import {
     Alert,
     Badge,
     Button,
-    Card,
     http,
     httpErrorToHuman,
     PageContentBlock,
@@ -16,6 +15,7 @@ interface EggVariable {
     id: number;
     egg_id: number;
     name: string;
+    description?: string | null;
     env_variable: string;
     default_value: string;
 }
@@ -45,6 +45,18 @@ interface PortRule {
     };
 }
 
+const RESERVED_VARIABLES = [
+    'SERVER_PORT',
+    'SERVER_MEMORY',
+    'SERVER_IP',
+    'ENV',
+    'HOME',
+    'USER',
+    'STARTUP',
+    'SERVER_UUID',
+    'UUID',
+];
+
 export default function AdminScreen() {
     const [rules, setRules] = useState<PortRule[]>([]);
     const [eggs, setEggs] = useState<Egg[]>([]);
@@ -56,6 +68,7 @@ export default function AdminScreen() {
     const [selectedEggId, setSelectedEggId] = useState<number | ''>('');
     const [ruleName, setRuleName] = useState('');
     const [envVariable, setEnvVariable] = useState('');
+    const [selectedVarOption, setSelectedVarOption] = useState<string>('');
     const [allocationType, setAllocationType] = useState<'offset' | 'any_available' | 'range'>('offset');
     const [offsetValue, setOffsetValue] = useState<number>(1);
     const [rangeStart, setRangeStart] = useState<number>(28000);
@@ -83,10 +96,48 @@ export default function AdminScreen() {
         loadData();
     }, []);
 
+    const currentEgg = eggs.find((e) => e.id === Number(selectedEggId));
+    const eggVariables = currentEgg?.variables || [];
+
+    const handleEggChange = (eggId: number | '') => {
+        setSelectedEggId(eggId);
+        setSelectedVarOption('');
+        setEnvVariable('');
+        setRuleName('');
+    };
+
+    const handleVariableSelect = (value: string) => {
+        setSelectedVarOption(value);
+        if (value && value !== '__CUSTOM__') {
+            const matchedVar = eggVariables.find((v) => v.env_variable === value);
+            setEnvVariable(value);
+            if (matchedVar) {
+                setRuleName(matchedVar.name);
+            }
+        } else if (value === '__CUSTOM__') {
+            setEnvVariable('');
+        }
+    };
+
+    const isReservedVar = RESERVED_VARIABLES.includes(envVariable.trim().toUpperCase());
+    const isServerPort = envVariable.trim().toUpperCase() === 'SERVER_PORT';
+
     const handleCreateRule = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedEggId || !ruleName.trim() || !envVariable.trim()) {
+        const trimmedVar = envVariable.trim().toUpperCase();
+
+        if (!selectedEggId || !ruleName.trim() || !trimmedVar) {
             toast.error('Please fill in all required rule fields.');
+            return;
+        }
+
+        if (isServerPort) {
+            toast.error("SERVER_PORT is the server's default port. Create sub-rules for additional variables (e.g. RCON_PORT).");
+            return;
+        }
+
+        if (isReservedVar) {
+            toast.error(`The variable ${trimmedVar} is reserved by Pterodactyl.`);
             return;
         }
 
@@ -95,7 +146,7 @@ export default function AdminScreen() {
             const payload = {
                 egg_id: Number(selectedEggId),
                 name: ruleName.trim(),
-                env_variable: envVariable.trim(),
+                env_variable: trimmedVar,
                 allocation_type: allocationType,
                 offset_value: allocationType === 'offset' ? Number(offsetValue) : null,
                 range_start: allocationType === 'range' ? Number(rangeStart) : null,
@@ -106,11 +157,12 @@ export default function AdminScreen() {
 
             const response = await http.post('/api/admin/extensions/auto-port-allocator/rules', payload);
             setRules((prev) => [...prev, response.data.rule]);
-            toast.success('Port rule created successfully!');
+            toast.success('Port sub-rule created successfully!');
 
             // Reset form fields
             setRuleName('');
             setEnvVariable('');
+            setSelectedVarOption('');
             setOffsetValue(1);
         } catch (err) {
             toast.error(httpErrorToHuman(err));
@@ -148,8 +200,27 @@ export default function AdminScreen() {
             <div className={'apa:space-y-8'}>
                 {error && <Alert type={'danger'}>{error}</Alert>}
 
-                {/* Create New Rule Box */}
-                <TitledGreyBox title={'Define New Egg Port Rule'}>
+                {/* Sub-Rule Concept Notice */}
+                <div className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:p-4 apa:text-sm'}>
+                    <div className={'apa:flex apa:items-start apa:gap-3'}>
+                        <div className={'apa:font-bold apa:text-primary apa:text-base'}>ℹ️</div>
+                        <div className={'apa:space-y-1'}>
+                            <p className={'apa:font-semibold apa:text-foreground'}>
+                                Primary Port vs. Port Sub-Rules Architecture
+                            </p>
+                            <p className={'apa:text-muted-foreground apa:text-xs'}>
+                                In Pterodactyl, the server's default port is always bound to the primary allocation and exposed as{' '}
+                                <code className={'apa:bg-muted apa:px-1.5 apa:py-0.5 apa:rounded apa:text-foreground apa:font-mono'}>SERVER_PORT</code>.
+                                The rules defined below act as <strong>Sub-Rules</strong> to automatically allocate secondary ports
+                                (e.g. RCON, Query, App, Web HTTP) and bind their allocated port number into the target egg variable
+                                (e.g. <code className={'apa:bg-muted apa:px-1.5 apa:py-0.5 apa:rounded apa:text-foreground apa:font-mono'}>RCON_PORT</code>).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Create New Sub-Rule Box */}
+                <TitledGreyBox title={'Define New Port Sub-Rule'}>
                     <form onSubmit={handleCreateRule} className={'apa:space-y-4 apa:p-2'}>
                         <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
                             {/* Target Egg */}
@@ -161,7 +232,7 @@ export default function AdminScreen() {
                                     value={selectedEggId}
                                     onChange={(e) => {
                                         const id = e.target.value ? Number(e.target.value) : '';
-                                        setSelectedEggId(id);
+                                        handleEggChange(id);
                                     }}
                                     className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                     required
@@ -175,10 +246,54 @@ export default function AdminScreen() {
                                 </select>
                             </div>
 
+                            {/* Variable Picker / Input */}
+                            <div>
+                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                    Target Egg Environment Variable
+                                </label>
+                                {eggVariables.length > 0 ? (
+                                    <div className={'apa:space-y-2'}>
+                                        <select
+                                            value={selectedVarOption}
+                                            onChange={(e) => handleVariableSelect(e.target.value)}
+                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                            required
+                                        >
+                                            <option value={''}>Select an Egg Variable...</option>
+                                            {eggVariables.map((v) => (
+                                                <option key={v.id} value={v.env_variable}>
+                                                    {v.env_variable} — {v.name}
+                                                </option>
+                                            ))}
+                                            <option value={'__CUSTOM__'}>+ Custom Variable Name...</option>
+                                        </select>
+                                        {selectedVarOption === '__CUSTOM__' && (
+                                            <input
+                                                type={'text'}
+                                                value={envVariable}
+                                                onChange={(e) => setEnvVariable(e.target.value.toUpperCase())}
+                                                placeholder={'e.g. RCON_PORT, HTTP_PORT'}
+                                                className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                required
+                                            />
+                                        )}
+                                    </div>
+                                ) : (
+                                    <input
+                                        type={'text'}
+                                        value={envVariable}
+                                        onChange={(e) => setEnvVariable(e.target.value.toUpperCase())}
+                                        placeholder={'e.g. RCON_PORT, HTTP_PORT, APP_PORT'}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                        required
+                                    />
+                                )}
+                            </div>
+
                             {/* Rule / Role Name */}
                             <div>
                                 <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Rule / Service Name
+                                    Sub-Rule / Service Name
                                 </label>
                                 <input
                                     type={'text'}
@@ -189,22 +304,21 @@ export default function AdminScreen() {
                                     required
                                 />
                             </div>
-
-                            {/* Environment Variable */}
-                            <div>
-                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Environment Variable Key
-                                </label>
-                                <input
-                                    type={'text'}
-                                    value={envVariable}
-                                    onChange={(e) => setEnvVariable(e.target.value.toUpperCase())}
-                                    placeholder={'e.g. RCON_PORT, HTTP_PORT, APP_PORT'}
-                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
-                                    required
-                                />
-                            </div>
                         </div>
+
+                        {/* Inline Reserved Variable Warning */}
+                        {isServerPort && (
+                            <div className={'apa:rounded apa:p-3 apa:text-xs apa:bg-destructive/10 apa:text-destructive apa:border apa:border-destructive/20'}>
+                                ⚠️ <strong>SERVER_PORT</strong> cannot be configured as a rule. It is the server's default primary allocation.
+                                Please select or enter an additional port variable (such as <code className={'apa:font-mono'}>RCON_PORT</code> or <code className={'apa:font-mono'}>APP_PORT</code>).
+                            </div>
+                        )}
+
+                        {isReservedVar && !isServerPort && (
+                            <div className={'apa:rounded apa:p-3 apa:text-xs apa:bg-destructive/10 apa:text-destructive apa:border apa:border-destructive/20'}>
+                                ⚠️ <strong>{envVariable}</strong> is a reserved Pterodactyl variable and cannot be used for port sub-rules.
+                            </div>
+                        )}
 
                         <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
                             {/* Allocation Type */}
@@ -217,7 +331,7 @@ export default function AdminScreen() {
                                     onChange={(e) => setAllocationType(e.target.value as any)}
                                     className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                 >
-                                    <option value={'offset'}>Fixed Offset from Primary Port (e.g. Primary + 2)</option>
+                                    <option value={'offset'}>Fixed Offset from SERVER_PORT (e.g. Primary + 2)</option>
                                     <option value={'any_available'}>Any Free Port on Node / IP</option>
                                     <option value={'range'}>Port Range / Pool</option>
                                 </select>
@@ -227,7 +341,7 @@ export default function AdminScreen() {
                             {allocationType === 'offset' && (
                                 <div>
                                     <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                        Offset Value (Added to Primary Port)
+                                        Offset from SERVER_PORT
                                     </label>
                                     <input
                                         type={'number'}
@@ -238,7 +352,7 @@ export default function AdminScreen() {
                                         required
                                     />
                                     <p className={'apa:text-xs apa:text-muted-foreground apa:mt-1'}>
-                                        Example: MTA HTTP = 2 (22003 + 2 = 22005)
+                                        Calculated as: <code className={'apa:font-mono'}>SERVER_PORT + {offsetValue}</code> (e.g. 22003 + 2 = 22005)
                                     </p>
                                 </div>
                             )}
@@ -279,7 +393,7 @@ export default function AdminScreen() {
                                         onChange={(e) => setAutoCreate(e.target.checked)}
                                         className={'apa:rounded'}
                                     />
-                                    <span>Auto-create port on node if missing</span>
+                                    <span>Auto-create on node</span>
                                 </label>
                                 <label className={'apa:flex apa:items-center apa:gap-2 apa:text-sm'}>
                                     <input
@@ -294,18 +408,18 @@ export default function AdminScreen() {
                         </div>
 
                         <div className={'apa:flex apa:justify-end apa:pt-2'}>
-                            <Button type={'submit'} isLoading={submitting}>
-                                Add Port Rule
+                            <Button type={'submit'} isLoading={submitting} disabled={isReservedVar}>
+                                Add Sub-Rule
                             </Button>
                         </div>
                     </form>
                 </TitledGreyBox>
 
                 {/* Existing Rules List */}
-                <TitledGreyBox title={'Configured Port Rules'}>
+                <TitledGreyBox title={'Configured Egg Port Sub-Rules'}>
                     {rules.length === 0 ? (
                         <p className={'apa:p-4 apa:text-sm apa:text-muted-foreground'}>
-                            No egg port allocation rules configured yet. Create one above (e.g. for Rust or MTA).
+                            No egg port sub-rules configured yet. Select an Egg above to configure additional ports (e.g. for Rust or MTA).
                         </p>
                     ) : (
                         <div className={'apa:overflow-x-auto'}>
@@ -314,9 +428,9 @@ export default function AdminScreen() {
                                     <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase'}>
                                         <th className={'apa:py-3 apa:px-4'}>Target Egg</th>
                                         <th className={'apa:py-3 apa:px-4'}>Service Name</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Env Variable</th>
+                                        <th className={'apa:py-3 apa:px-4'}>Sub-Rule Variable</th>
                                         <th className={'apa:py-3 apa:px-4'}>Strategy</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Config</th>
+                                        <th className={'apa:py-3 apa:px-4'}>Formula / Config</th>
                                         <th className={'apa:py-3 apa:px-4'}>Auto-Create</th>
                                         <th className={'apa:py-3 apa:px-4'}>Actions</th>
                                     </tr>
@@ -328,8 +442,13 @@ export default function AdminScreen() {
                                                 {rule.egg?.name || `Egg #${rule.egg_id}`}
                                             </td>
                                             <td className={'apa:py-3 apa:px-4'}>{rule.name}</td>
-                                            <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm apa:text-primary'}>
-                                                {rule.env_variable}
+                                            <td className={'apa:py-3 apa:px-4'}>
+                                                <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                    <span className={'apa:font-mono apa:text-sm apa:text-primary apa:font-semibold'}>
+                                                        {rule.env_variable}
+                                                    </span>
+                                                    <Badge tone={'accent'} variant={'soft'}>Sub-Rule</Badge>
+                                                </div>
                                             </td>
                                             <td className={'apa:py-3 apa:px-4'}>
                                                 <Badge tone={'neutral'} variant={'soft'}>
@@ -341,9 +460,15 @@ export default function AdminScreen() {
                                                 </Badge>
                                             </td>
                                             <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm'}>
-                                                {rule.allocation_type === 'offset' && `+${rule.offset_value}`}
-                                                {rule.allocation_type === 'range' && `${rule.range_start}-${rule.range_end}`}
-                                                {rule.allocation_type === 'any_available' && 'Any Free'}
+                                                {rule.allocation_type === 'offset' && (
+                                                    <span className={'apa:text-foreground'}>SERVER_PORT + {rule.offset_value}</span>
+                                                )}
+                                                {rule.allocation_type === 'range' && (
+                                                    <span>{rule.range_start}-{rule.range_end}</span>
+                                                )}
+                                                {rule.allocation_type === 'any_available' && (
+                                                    <span className={'apa:text-muted-foreground'}>Any Free Port</span>
+                                                )}
                                             </td>
                                             <td className={'apa:py-3 apa:px-4'}>
                                                 {rule.auto_create_allocation ? (

@@ -54,6 +54,11 @@ class AutoPortAllocationService
         $mappedRules = [];
 
         foreach ($rules as $rule) {
+            // SERVER_PORT is Pterodactyl's primary allocation; rules only handle secondary sub-rules
+            if (strtoupper($rule->env_variable) === 'SERVER_PORT') {
+                continue;
+            }
+
             $allocation = $this->resolveAllocationForRule($rule, $node, $primaryAllocation, $claimedIds);
 
             if ($allocation === null) {
@@ -134,6 +139,11 @@ class AutoPortAllocationService
             $claimedIds = $assignedAllocationIds;
 
             foreach ($rules as $rule) {
+                // SERVER_PORT is Pterodactyl's primary allocation; rules only handle secondary sub-rules
+                if (strtoupper($rule->env_variable) === 'SERVER_PORT') {
+                    continue;
+                }
+
                 // Check if this server already has an allocation tracked for this env_variable
                 $alreadyTracked = ServerAllocatedPort::query()
                     ->where('server_id', $server->id)

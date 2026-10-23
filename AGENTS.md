@@ -94,10 +94,14 @@ Auto-Port-Allocator/
 
 ## 5. Port Tahsis Algoritmaları & Kural Mantığı
 
-Bir yumurta (Egg) için oluşturulabilecek kural tipleri:
+### Temel Mimari: `SERVER_PORT` ve Alt Kurallar (Sub-Rules)
+- **Ana Port (`SERVER_PORT`):** Pterodactyl panelinde bir sunucu oluşturulduğunda belirlenen birincil port (`allocation_id`) her zaman varsayılan oyun portu olarak atanır ve sistem genelinde `SERVER_PORT` rezerve değişkeni ile temsil edilir. Kullanıcı veya yönetici `SERVER_PORT` için kural tanımlayamaz veya değer atayamaz; `SERVER_PORT` sistemin değişmez temel referansıdır.
+- **Alt Kurallar (Sub-Rules):** Auto Port Allocator üzerinde tanımlanan tüm kurallar birer **alt kuraldır (sub-rule)**. Bu kurallar ek portları (secondary/tertiary allocations) otomatik tahsis eder ve değerlerini ilgili yumurta ortam değişkenine (örn: `RCON_PORT`, `APP_PORT`, `HTTP_PORT`, `ASE_PORT`) aktarır.
 
-1. **Offset Kuralı (Fixed Offset):**
-   - Birincil porta belirli bir sayı ekleyerek aynı IP üzerinde tahsis arar.
+Bir yumurta (Egg) için oluşturulabilecek alt kural tipleri:
+
+1. **Offset Kuralı (Fixed Offset from SERVER_PORT):**
+   - Birincil porta (`SERVER_PORT`) belirli bir sayı ekleyerek aynı IP üzerinde tahsis arar: `SERVER_PORT + offset`.
    - Örnek MTA: `SERVER_PORT` = 22003 ise, `HTTP_PORT` = Primary + 2 (22005), `ASE_PORT` = Primary + 123 (22126).
    - Eğer offset portu o node/IP üzerinde allocation olarak yoksa veya doluysa, admin yapılandırmasına göre ya otomatik oluşturulur ya da hata fırlatılır.
 
