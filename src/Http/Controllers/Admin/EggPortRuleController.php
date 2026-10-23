@@ -32,7 +32,7 @@ class EggPortRuleController
     #[Endpoint('List Port Rules', 'Returns all auto port allocation rules.')]
     public function index(Request $request): JsonResponse
     {
-        $query = PortRule::query()->with('egg:id,name,nest_id');
+        $query = PortRule::query()->with('egg:id,name');
 
         if ($request->has('egg_id')) {
             $query->where('egg_id', (int) $request->input('egg_id'));
@@ -65,7 +65,7 @@ class EggPortRuleController
         $rule = PortRule::query()->create($validated);
 
         return new JsonResponse([
-            'rule' => $rule->load('egg:id,name,nest_id'),
+            'rule' => $rule->load('egg:id,name'),
             'message' => 'Rule created successfully.',
         ], 201);
     }
@@ -95,7 +95,7 @@ class EggPortRuleController
         $rule->update($validated);
 
         return new JsonResponse([
-            'rule' => $rule->load('egg:id,name,nest_id'),
+            'rule' => $rule->load('egg:id,name'),
             'message' => 'Rule updated successfully.',
         ]);
     }
@@ -119,7 +119,8 @@ class EggPortRuleController
                 $query->select(['id', 'egg_id', 'name', 'description', 'env_variable', 'default_value'])
                     ->whereNotIn('env_variable', self::RESERVED_ENV_VARIABLES);
             }])
-            ->get(['id', 'nest_id', 'name', 'author']);
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         return new JsonResponse([
             'eggs' => $eggs,

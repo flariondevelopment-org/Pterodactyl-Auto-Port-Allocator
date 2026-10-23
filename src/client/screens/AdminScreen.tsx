@@ -22,9 +22,7 @@ interface EggVariable {
 
 interface Egg {
     id: number;
-    nest_id: number;
     name: string;
-    author: string;
     variables: EggVariable[];
 }
 

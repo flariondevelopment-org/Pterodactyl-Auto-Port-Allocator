@@ -20,6 +20,9 @@ class AutoPortAllocatorProvider extends ExtensionProvider
 
     public function boot(): void
     {
+        // Register database migrations
+        $this->loadExtensionMigrations();
+
         // Registers routes/client.php, routes/server.php, routes/admin.php
         $this->registerApiRoutes();
 
