@@ -1,0 +1,39 @@
+{
+    "$schema": "./node_modules/@pterodactyl/sdk/manifest.schema.json",
+    "id": "auto-port-allocator",
+    "name": "Auto Port Allocator",
+    "version": "1.0.0",
+    "requires": {
+        "panel": "^2.0.0-dev",
+        "sdk": ">=2.0.0-dev <3.0",
+        "php": "^8.3"
+    },
+    "description": "Automatic multi-port allocation for games like Rust and MTA",
+    "provider": "AutoPortAllocator\\AutoPortAllocatorProvider",
+    "icon": "network",
+    "ui": {
+        "entry": "dist/client.js",
+        "mode": "native",
+        "prefix": "apa",
+        "screens": [
+            {
+                "id": "server-ports",
+                "area": "server",
+                "path": "ports",
+                "nav": {
+                    "label": "Port Allocations",
+                    "icon": "network"
+                }
+            },
+            {
+                "id": "admin-rules",
+                "area": "admin",
+                "path": "auto-port-allocator",
+                "nav": {
+                    "label": "Auto Port Allocator",
+                    "icon": "network"
+                }
+            }
+        ]
+    }
+}

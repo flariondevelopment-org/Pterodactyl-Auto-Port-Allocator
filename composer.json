@@ -1,0 +1,12 @@
+{
+    "name": "pterodactyl-extension/auto-port-allocator",
+    "description": "Automatic multi-port allocation for games like Rust and MTA",
+    "autoload": {
+        "psr-4": {
+            "AutoPortAllocator\\": "src/"
+        }
+    },
+    "config": {
+        "autoloader-suffix": "AutoPortAllocatorExtension"
+    }
+}
