@@ -15,7 +15,7 @@ jobs:
           path: .panel
       - run: npm ci && npm run sdk:generate && npm run sdk:testing
         working-directory: .panel
-      - run: npm pkg set 'devDependencies.@pterodactyl/sdk=file:./.panel/packages/sdk' && npm install
+      - run: npm pkg set 'devDependencies.@pterodactyl/sdk=file:./.panel/packages/sdk' && npm install --legacy-peer-deps
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
