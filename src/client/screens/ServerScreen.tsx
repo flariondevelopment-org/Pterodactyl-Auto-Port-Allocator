@@ -38,10 +38,18 @@ interface EggRule {
     is_required: boolean;
 }
 
+interface GameProfileSummary {
+    id: number;
+    name: string;
+    primary_range_start: number | null;
+    primary_range_end: number | null;
+}
+
 interface ServerPortsData {
     primary_allocation: Allocation | null;
     all_allocations: Allocation[];
     assigned_roles: AssignedRole[];
+    game_profile?: GameProfileSummary | null;
     egg_rules: EggRule[];
     missing_rules: EggRule[];
 }
@@ -126,10 +134,24 @@ export default function ServerScreen() {
 
                 {/* Sub-Rule Information Notice */}
                 <div className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:p-4 apa:text-xs apa:text-muted-foreground'}>
-                    <p>
-                        <strong className={'apa:text-foreground'}>Primary Game Port:</strong> Bound to Pterodactyl's primary allocation (<code className={'apa:font-mono'}>SERVER_PORT</code>).
-                        Additional services (such as RCON, Query, Web HTTP) are provisioned via <strong>Egg Sub-Rules</strong> and automatically synchronized with the server's environment variables.
-                    </p>
+                    <div className={'apa:flex apa:flex-wrap apa:justify-between apa:items-center apa:gap-2 apa:mb-1'}>
+                        <p>
+                            <strong className={'apa:text-foreground'}>Primary Game Port:</strong> Bound to Pterodactyl's primary allocation (<code className={'apa:font-mono'}>SERVER_PORT</code>).
+                            Additional services (such as RCON, Query, Web HTTP) are provisioned via <strong>Egg Sub-Rules</strong> and automatically synchronized with the server's environment variables.
+                        </p>
+                        {data?.game_profile && (
+                            <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                <Badge tone={'accent'} variant={'solid'}>
+                                    Game: {data.game_profile.name}
+                                </Badge>
+                                {data.game_profile.primary_range_start && data.game_profile.primary_range_end && (
+                                    <Badge tone={'neutral'} variant={'soft'}>
+                                        Allowed Primary Range: {data.game_profile.primary_range_start}–{data.game_profile.primary_range_end}
+                                    </Badge>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <TitledGreyBox title={'Allocated Game Ports & Services'}>

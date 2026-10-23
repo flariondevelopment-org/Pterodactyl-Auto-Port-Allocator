@@ -13,6 +13,8 @@ use Pterodactyl\Models\Server;
  * @property int $id
  * @property int $server_id
  * @property int $allocation_id
+ * @property int|null $profile_id
+ * @property int|null $sub_rule_id
  * @property int|null $rule_id
  * @property string $env_variable
  * @property string $port_name
@@ -20,6 +22,8 @@ use Pterodactyl\Models\Server;
  * @property \Illuminate\Support\Carbon|null $updated_at
  * @property-read Server $server
  * @property-read Allocation $allocation
+ * @property-read GameProfile|null $profile
+ * @property-read SubRule|null $subRule
  * @property-read PortRule|null $rule
  */
 class ServerAllocatedPort extends Model
@@ -29,6 +33,8 @@ class ServerAllocatedPort extends Model
     protected $fillable = [
         'server_id',
         'allocation_id',
+        'profile_id',
+        'sub_rule_id',
         'rule_id',
         'env_variable',
         'port_name',
@@ -37,6 +43,8 @@ class ServerAllocatedPort extends Model
     protected $casts = [
         'server_id' => 'integer',
         'allocation_id' => 'integer',
+        'profile_id' => 'integer',
+        'sub_rule_id' => 'integer',
         'rule_id' => 'integer',
     ];
 
@@ -48,6 +56,16 @@ class ServerAllocatedPort extends Model
     public function allocation(): BelongsTo
     {
         return $this->belongsTo(Allocation::class, 'allocation_id');
+    }
+
+    public function profile(): BelongsTo
+    {
+        return $this->belongsTo(GameProfile::class, 'profile_id');
+    }
+
+    public function subRule(): BelongsTo
+    {
+        return $this->belongsTo(SubRule::class, 'sub_rule_id');
     }
 
     public function rule(): BelongsTo

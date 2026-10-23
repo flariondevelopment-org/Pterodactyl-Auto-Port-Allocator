@@ -26,9 +26,9 @@ interface Egg {
     variables: EggVariable[];
 }
 
-interface PortRule {
+interface SubRule {
     id: number;
-    egg_id: number;
+    profile_id: number;
     name: string;
     env_variable: string;
     allocation_type: 'offset' | 'any_available' | 'range';
@@ -37,10 +37,17 @@ interface PortRule {
     range_end: number | null;
     auto_create_allocation: boolean;
     is_required: boolean;
-    egg?: {
-        id: number;
-        name: string;
-    };
+}
+
+interface GameProfile {
+    id: number;
+    egg_id: number;
+    name: string;
+    description: string | null;
+    primary_range_start: number | null;
+    primary_range_end: number | null;
+    egg?: Egg;
+    sub_rules?: SubRule[];
 }
 
 const RESERVED_VARIABLES = [
@@ -56,32 +63,41 @@ const RESERVED_VARIABLES = [
 ];
 
 export default function AdminScreen() {
-    const [rules, setRules] = useState<PortRule[]>([]);
+    const [profiles, setProfiles] = useState<GameProfile[]>([]);
     const [eggs, setEggs] = useState<Egg[]>([]);
     const [loading, setLoading] = useState(true);
-    const [submitting, setSubmitting] = useState(false);
+    const [submittingProfile, setSubmittingProfile] = useState(false);
+    const [submittingSubRule, setSubmittingSubRule] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Form state
-    const [selectedEggId, setSelectedEggId] = useState<number | ''>('');
-    const [ruleName, setRuleName] = useState('');
-    const [envVariable, setEnvVariable] = useState('');
-    const [selectedVarOption, setSelectedVarOption] = useState<string>('');
-    const [allocationType, setAllocationType] = useState<'offset' | 'any_available' | 'range'>('offset');
-    const [offsetValue, setOffsetValue] = useState<number>(1);
-    const [rangeStart, setRangeStart] = useState<number>(28000);
-    const [rangeEnd, setRangeEnd] = useState<number>(28100);
-    const [autoCreate, setAutoCreate] = useState(true);
-    const [isRequired, setIsRequired] = useState(true);
+    // Profile modal / form state
+    const [showProfileForm, setShowProfileForm] = useState(false);
+    const [profileName, setProfileName] = useState('');
+    const [profileEggId, setProfileEggId] = useState<number | ''>('');
+    const [profileDescription, setProfileDescription] = useState('');
+    const [primaryRangeStart, setPrimaryRangeStart] = useState<number | ''>('');
+    const [primaryRangeEnd, setPrimaryRangeEnd] = useState<number | ''>('');
+
+    // Sub-rule modal / form state
+    const [activeProfileForSubRule, setActiveProfileForSubRule] = useState<GameProfile | null>(null);
+    const [subRuleName, setSubRuleName] = useState('');
+    const [subRuleEnvVar, setSubRuleEnvVar] = useState('');
+    const [subRuleVarOption, setSubRuleVarOption] = useState('');
+    const [subRuleAllocType, setSubRuleAllocType] = useState<'offset' | 'any_available' | 'range'>('offset');
+    const [subRuleOffset, setSubRuleOffset] = useState<number>(2);
+    const [subRuleRangeStart, setSubRuleRangeStart] = useState<number>(28000);
+    const [subRuleRangeEnd, setSubRuleRangeEnd] = useState<number>(28100);
+    const [subRuleAutoCreate, setSubRuleAutoCreate] = useState(true);
+    const [subRuleRequired, setSubRuleRequired] = useState(true);
 
     const loadData = async () => {
         try {
             setError(null);
-            const [rulesRes, eggsRes] = await Promise.all([
-                http.get('/api/admin/extensions/auto-port-allocator/rules'),
+            const [profilesRes, eggsRes] = await Promise.all([
+                http.get('/api/admin/extensions/auto-port-allocator/profiles'),
                 http.get('/api/admin/extensions/auto-port-allocator/eggs'),
             ]);
-            setRules(rulesRes.data.rules || []);
+            setProfiles(profilesRes.data.profiles || []);
             setEggs(eggsRes.data.eggs || []);
         } catch (err) {
             setError(httpErrorToHuman(err));
@@ -94,90 +110,161 @@ export default function AdminScreen() {
         loadData();
     }, []);
 
-    const currentEgg = eggs.find((e) => e.id === Number(selectedEggId));
-    const eggVariables = currentEgg?.variables || [];
+    // Active profile egg variables
+    const activeEgg = eggs.find((e) => e.id === activeProfileForSubRule?.egg_id);
+    const eggVariables = activeEgg?.variables || [];
 
-    const handleEggChange = (eggId: number | '') => {
-        setSelectedEggId(eggId);
-        setSelectedVarOption('');
-        setEnvVariable('');
-        setRuleName('');
-    };
-
-    const handleVariableSelect = (value: string) => {
-        setSelectedVarOption(value);
-        if (value && value !== '__CUSTOM__') {
-            const matchedVar = eggVariables.find((v) => v.env_variable === value);
-            setEnvVariable(value);
-            if (matchedVar) {
-                setRuleName(matchedVar.name);
-            }
-        } else if (value === '__CUSTOM__') {
-            setEnvVariable('');
-        }
-    };
-
-    const isReservedVar = RESERVED_VARIABLES.includes(envVariable.trim().toUpperCase());
-    const isServerPort = envVariable.trim().toUpperCase() === 'SERVER_PORT';
-
-    const handleCreateRule = async (e: React.FormEvent) => {
+    const handleCreateProfile = async (e: React.FormEvent) => {
         e.preventDefault();
-        const trimmedVar = envVariable.trim().toUpperCase();
-
-        if (!selectedEggId || !ruleName.trim() || !trimmedVar) {
-            toast.error('Please fill in all required rule fields.');
+        if (!profileName.trim() || !profileEggId) {
+            toast.error('Please enter a game name and select an Egg.');
             return;
         }
 
-        if (isServerPort) {
-            toast.error("SERVER_PORT is the server's default port. Create sub-rules for additional variables (e.g. RCON_PORT).");
+        try {
+            setSubmittingProfile(true);
+            const payload = {
+                name: profileName.trim(),
+                egg_id: Number(profileEggId),
+                description: profileDescription.trim() || null,
+                primary_range_start: primaryRangeStart !== '' ? Number(primaryRangeStart) : null,
+                primary_range_end: primaryRangeEnd !== '' ? Number(primaryRangeEnd) : null,
+            };
+
+            const res = await http.post('/api/admin/extensions/auto-port-allocator/profiles', payload);
+            setProfiles((prev) => [...prev, res.data.profile]);
+            toast.success(`Game profile "${res.data.profile.name}" created!`);
+
+            // Reset profile form
+            setProfileName('');
+            setProfileEggId('');
+            setProfileDescription('');
+            setPrimaryRangeStart('');
+            setPrimaryRangeEnd('');
+            setShowProfileForm(false);
+        } catch (err) {
+            toast.error(httpErrorToHuman(err));
+        } finally {
+            setSubmittingProfile(false);
+        }
+    };
+
+    const handleDeleteProfile = async (profileId: number) => {
+        if (!window.confirm('Are you sure you want to delete this game profile and all its configured port rules?')) {
             return;
         }
 
-        if (isReservedVar) {
+        try {
+            await http.delete(`/api/admin/extensions/auto-port-allocator/profiles/${profileId}`);
+            setProfiles((prev) => prev.filter((p) => p.id !== profileId));
+            toast.success('Game profile deleted.');
+        } catch (err) {
+            toast.error(httpErrorToHuman(err));
+        }
+    };
+
+    const openSubRuleModal = (profile: GameProfile) => {
+        setActiveProfileForSubRule(profile);
+        setSubRuleName('');
+        setSubRuleEnvVar('');
+        setSubRuleVarOption('');
+        setSubRuleAllocType('offset');
+        setSubRuleOffset(2);
+    };
+
+    const handleSubRuleVarSelect = (val: string) => {
+        setSubRuleVarOption(val);
+        if (val && val !== '__CUSTOM__') {
+            const v = eggVariables.find((ev) => ev.env_variable === val);
+            setSubRuleEnvVar(val);
+            if (v) {
+                setSubRuleName(v.name);
+            }
+        } else if (val === '__CUSTOM__') {
+            setSubRuleEnvVar('');
+        }
+    };
+
+    const isSubRuleReserved = RESERVED_VARIABLES.includes(subRuleEnvVar.trim().toUpperCase());
+    const isSubRuleServerPort = subRuleEnvVar.trim().toUpperCase() === 'SERVER_PORT';
+
+    const handleCreateSubRule = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!activeProfileForSubRule) return;
+
+        const trimmedVar = subRuleEnvVar.trim().toUpperCase();
+        if (!subRuleName.trim() || !trimmedVar) {
+            toast.error('Please enter a service name and environment variable.');
+            return;
+        }
+
+        if (isSubRuleServerPort) {
+            toast.error("SERVER_PORT is the default primary port. Define secondary sub-rules for extra ports (e.g. HTTP_PORT, ASE_PORT, RCON_PORT).");
+            return;
+        }
+
+        if (isSubRuleReserved) {
             toast.error(`The variable ${trimmedVar} is reserved by Pterodactyl.`);
             return;
         }
 
         try {
-            setSubmitting(true);
+            setSubmittingSubRule(true);
             const payload = {
-                egg_id: Number(selectedEggId),
-                name: ruleName.trim(),
+                name: subRuleName.trim(),
                 env_variable: trimmedVar,
-                allocation_type: allocationType,
-                offset_value: allocationType === 'offset' ? Number(offsetValue) : null,
-                range_start: allocationType === 'range' ? Number(rangeStart) : null,
-                range_end: allocationType === 'range' ? Number(rangeEnd) : null,
-                auto_create_allocation: autoCreate,
-                is_required: isRequired,
+                allocation_type: subRuleAllocType,
+                offset_value: subRuleAllocType === 'offset' ? Number(subRuleOffset) : null,
+                range_start: subRuleAllocType === 'range' ? Number(subRuleRangeStart) : null,
+                range_end: subRuleAllocType === 'range' ? Number(subRuleRangeEnd) : null,
+                auto_create_allocation: subRuleAutoCreate,
+                is_required: subRuleRequired,
             };
 
-            const response = await http.post('/api/admin/extensions/auto-port-allocator/rules', payload);
-            setRules((prev) => [...prev, response.data.rule]);
-            toast.success('Port sub-rule created successfully!');
+            const res = await http.post(
+                `/api/admin/extensions/auto-port-allocator/profiles/${activeProfileForSubRule.id}/sub-rules`,
+                payload
+            );
 
-            // Reset form fields
-            setRuleName('');
-            setEnvVariable('');
-            setSelectedVarOption('');
-            setOffsetValue(1);
+            // Update local state
+            setProfiles((prev) =>
+                prev.map((p) => {
+                    if (p.id === activeProfileForSubRule.id) {
+                        return {
+                            ...p,
+                            sub_rules: [...(p.sub_rules || []), res.data.sub_rule],
+                        };
+                    }
+                    return p;
+                })
+            );
+
+            toast.success(`Secondary port "${res.data.sub_rule.name}" added to ${activeProfileForSubRule.name}!`);
+            setActiveProfileForSubRule(null);
         } catch (err) {
             toast.error(httpErrorToHuman(err));
         } finally {
-            setSubmitting(false);
+            setSubmittingSubRule(false);
         }
     };
 
-    const handleDeleteRule = async (ruleId: number) => {
-        if (!window.confirm('Are you sure you want to delete this port allocation rule?')) {
-            return;
-        }
+    const handleDeleteSubRule = async (profileId: number, subRuleId: number) => {
+        if (!window.confirm('Delete this secondary port sub-rule?')) return;
 
         try {
-            await http.delete(`/api/admin/extensions/auto-port-allocator/rules/${ruleId}`);
-            setRules((prev) => prev.filter((r) => r.id !== ruleId));
-            toast.success('Rule deleted.');
+            await http.delete(`/api/admin/extensions/auto-port-allocator/sub-rules/${subRuleId}`);
+            setProfiles((prev) =>
+                prev.map((p) => {
+                    if (p.id === profileId) {
+                        return {
+                            ...p,
+                            sub_rules: (p.sub_rules || []).filter((sr) => sr.id !== subRuleId),
+                        };
+                    }
+                    return p;
+                })
+            );
+            toast.success('Secondary port deleted.');
         } catch (err) {
             toast.error(httpErrorToHuman(err));
         }
@@ -194,178 +281,384 @@ export default function AdminScreen() {
     }
 
     return (
-        <PageContentBlock title={'Auto Port Allocator Configuration'}>
+        <PageContentBlock title={'Auto Port Allocator — Game Profiles'}>
             <div className={'apa:space-y-8'}>
                 {error && <Alert type={'danger'}>{error}</Alert>}
 
-                {/* Sub-Rule Concept Notice */}
+                {/* Concept Banner */}
                 <div className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:p-4 apa:text-sm'}>
                     <div className={'apa:flex apa:items-start apa:gap-3'}>
-                        <div className={'apa:font-bold apa:text-primary apa:text-base'}>ℹ️</div>
+                        <div className={'apa:font-bold apa:text-primary apa:text-base'}>🎮</div>
                         <div className={'apa:space-y-1'}>
                             <p className={'apa:font-semibold apa:text-foreground'}>
-                                Primary Port vs. Port Sub-Rules Architecture
+                                Game-Centric Multi-Port Architecture
                             </p>
                             <p className={'apa:text-muted-foreground apa:text-xs'}>
-                                In Pterodactyl, the server's default port is always bound to the primary allocation and exposed as{' '}
-                                <code className={'apa:bg-muted apa:px-1.5 apa:py-0.5 apa:rounded apa:text-foreground apa:font-mono'}>SERVER_PORT</code>.
-                                The rules defined below act as <strong>Sub-Rules</strong> to automatically allocate secondary ports
-                                (e.g. RCON, Query, App, Web HTTP) and bind their allocated port number into the target egg variable
-                                (e.g. <code className={'apa:bg-muted apa:px-1.5 apa:py-0.5 apa:rounded apa:text-foreground apa:font-mono'}>RCON_PORT</code>).
+                                Create a <strong>Game Profile</strong> (e.g. <em>MTA</em>, <em>Rust</em>, <em>Palworld</em>) linked to an Egg.
+                                Inside each game, define the <strong>Primary Port Range</strong> for the server's default port (<code className={'apa:font-mono'}>SERVER_PORT</code>)
+                                and configure multiple <strong>Secondary Ports</strong> (e.g. HTTP, ASE, RCON, Query) with custom allocation strategies (Offset, Range, Any Available).
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {/* Create New Sub-Rule Box */}
-                <TitledGreyBox title={'Define New Port Sub-Rule'}>
-                    <form onSubmit={handleCreateRule} className={'apa:space-y-4 apa:p-2'}>
-                        <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
-                            {/* Target Egg */}
-                            <div>
-                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Target Egg
-                                </label>
-                                <select
-                                    value={selectedEggId}
-                                    onChange={(e) => {
-                                        const id = e.target.value ? Number(e.target.value) : '';
-                                        handleEggChange(id);
-                                    }}
-                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                    required
-                                >
-                                    <option value={''}>Select an Egg...</option>
-                                    {eggs.map((egg) => (
-                                        <option key={egg.id} value={egg.id}>
-                                            {egg.name} (Egg #{egg.id})
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
+                {/* Header Action: Add Game Profile */}
+                <div className={'apa:flex apa:justify-between apa:items-center'}>
+                    <div>
+                        <h2 className={'apa:text-lg apa:font-bold apa:text-foreground'}>Configured Game Profiles</h2>
+                        <p className={'apa:text-xs apa:text-muted-foreground'}>
+                            {profiles.length} game profile(s) defined.
+                        </p>
+                    </div>
+                    <Button onClick={() => setShowProfileForm(!showProfileForm)}>
+                        {showProfileForm ? 'Cancel' : '+ Create Game Profile'}
+                    </Button>
+                </div>
 
-                            {/* Variable Picker / Input */}
-                            <div>
-                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Target Egg Environment Variable
-                                </label>
-                                {eggVariables.length > 0 ? (
-                                    <div className={'apa:space-y-2'}>
-                                        <select
-                                            value={selectedVarOption}
-                                            onChange={(e) => handleVariableSelect(e.target.value)}
-                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
-                                            required
-                                        >
-                                            <option value={''}>Select an Egg Variable...</option>
-                                            {eggVariables.map((v) => (
-                                                <option key={v.id} value={v.env_variable}>
-                                                    {v.env_variable} — {v.name}
-                                                </option>
-                                            ))}
-                                            <option value={'__CUSTOM__'}>+ Custom Variable Name...</option>
-                                        </select>
-                                        {selectedVarOption === '__CUSTOM__' && (
-                                            <input
-                                                type={'text'}
-                                                value={envVariable}
-                                                onChange={(e) => setEnvVariable(e.target.value.toUpperCase())}
-                                                placeholder={'e.g. RCON_PORT, HTTP_PORT'}
-                                                className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
-                                                required
-                                            />
-                                        )}
-                                    </div>
-                                ) : (
-                                    <input
-                                        type={'text'}
-                                        value={envVariable}
-                                        onChange={(e) => setEnvVariable(e.target.value.toUpperCase())}
-                                        placeholder={'e.g. RCON_PORT, HTTP_PORT, APP_PORT'}
-                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
-                                        required
-                                    />
-                                )}
-                            </div>
-
-                            {/* Rule / Role Name */}
-                            <div>
-                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Sub-Rule / Service Name
-                                </label>
-                                <input
-                                    type={'text'}
-                                    value={ruleName}
-                                    onChange={(e) => setRuleName(e.target.value)}
-                                    placeholder={'e.g. RCON Port, MTA HTTP, Rust+ App'}
-                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                    required
-                                />
-                            </div>
-                        </div>
-
-                        {/* Inline Reserved Variable Warning */}
-                        {isServerPort && (
-                            <div className={'apa:rounded apa:p-3 apa:text-xs apa:bg-destructive/10 apa:text-destructive apa:border apa:border-destructive/20'}>
-                                ⚠️ <strong>SERVER_PORT</strong> cannot be configured as a rule. It is the server's default primary allocation.
-                                Please select or enter an additional port variable (such as <code className={'apa:font-mono'}>RCON_PORT</code> or <code className={'apa:font-mono'}>APP_PORT</code>).
-                            </div>
-                        )}
-
-                        {isReservedVar && !isServerPort && (
-                            <div className={'apa:rounded apa:p-3 apa:text-xs apa:bg-destructive/10 apa:text-destructive apa:border apa:border-destructive/20'}>
-                                ⚠️ <strong>{envVariable}</strong> is a reserved Pterodactyl variable and cannot be used for port sub-rules.
-                            </div>
-                        )}
-
-                        <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
-                            {/* Allocation Type */}
-                            <div>
-                                <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                    Allocation Strategy
-                                </label>
-                                <select
-                                    value={allocationType}
-                                    onChange={(e) => setAllocationType(e.target.value as any)}
-                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                >
-                                    <option value={'offset'}>Fixed Offset from SERVER_PORT (e.g. Primary + 2)</option>
-                                    <option value={'any_available'}>Any Free Port on Node / IP</option>
-                                    <option value={'range'}>Port Range / Pool</option>
-                                </select>
-                            </div>
-
-                            {/* Type-Specific Options */}
-                            {allocationType === 'offset' && (
+                {/* Create Profile Form Box */}
+                {showProfileForm && (
+                    <TitledGreyBox title={'Define New Game Profile'}>
+                        <form onSubmit={handleCreateProfile} className={'apa:space-y-4 apa:p-2'}>
+                            <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
+                                {/* Game Name */}
                                 <div>
                                     <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
-                                        Offset from SERVER_PORT
+                                        Game Profile Name
                                     </label>
                                     <input
-                                        type={'number'}
-                                        value={offsetValue}
-                                        onChange={(e) => setOffsetValue(Number(e.target.value))}
-                                        placeholder={'e.g. 1, 2, 123'}
+                                        type={'text'}
+                                        value={profileName}
+                                        onChange={(e) => setProfileName(e.target.value)}
+                                        placeholder={'e.g. MTA (Multi Theft Auto), Rust'}
                                         className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                         required
                                     />
+                                </div>
+
+                                {/* Target Egg */}
+                                <div>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Target Egg
+                                    </label>
+                                    <select
+                                        value={profileEggId}
+                                        onChange={(e) => setProfileEggId(e.target.value ? Number(e.target.value) : '')}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        required
+                                    >
+                                        <option value={''}>Select Target Egg...</option>
+                                        {eggs.map((egg) => (
+                                            <option key={egg.id} value={egg.id}>
+                                                {egg.name} (Egg #{egg.id})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Description */}
+                                <div>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Description (Optional)
+                                    </label>
+                                    <input
+                                        type={'text'}
+                                        value={profileDescription}
+                                        onChange={(e) => setProfileDescription(e.target.value)}
+                                        placeholder={'e.g. Standard MTA 3-port configuration'}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Primary Port Range Constraints */}
+                            <div className={'apa:rounded apa:border apa:border-muted apa:p-3 apa:bg-muted/10'}>
+                                <label className={'apa:block apa:text-xs apa:font-semibold apa:text-foreground apa:mb-1'}>
+                                    Primary Game Port (SERVER_PORT) Range Limits (Optional)
+                                </label>
+                                <p className={'apa:text-xs apa:text-muted-foreground apa:mb-3'}>
+                                    Restrict the server's default port to a specific range (e.g. MTA game port is normally 22003–22050).
+                                </p>
+                                <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-2 apa:gap-4'}>
+                                    <div>
+                                        <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                            Primary Range Start
+                                        </label>
+                                        <input
+                                            type={'number'}
+                                            value={primaryRangeStart}
+                                            onChange={(e) => setPrimaryRangeStart(e.target.value ? Number(e.target.value) : '')}
+                                            placeholder={'e.g. 22003'}
+                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                            Primary Range End
+                                        </label>
+                                        <input
+                                            type={'number'}
+                                            value={primaryRangeEnd}
+                                            onChange={(e) => setPrimaryRangeEnd(e.target.value ? Number(e.target.value) : '')}
+                                            placeholder={'e.g. 22050'}
+                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className={'apa:flex apa:justify-end apa:pt-2'}>
+                                <Button type={'submit'} isLoading={submittingProfile}>
+                                    Save Game Profile
+                                </Button>
+                            </div>
+                        </form>
+                    </TitledGreyBox>
+                )}
+
+                {/* Game Profiles Cards List */}
+                {profiles.length === 0 ? (
+                    <TitledGreyBox title={'No Game Profiles'}>
+                        <div className={'apa:p-6 apa:text-center apa:space-y-3'}>
+                            <p className={'apa:text-muted-foreground apa:text-sm'}>
+                                No game profiles configured yet. Click <strong>+ Create Game Profile</strong> above to get started (e.g. for MTA or Rust).
+                            </p>
+                        </div>
+                    </TitledGreyBox>
+                ) : (
+                    <div className={'apa:space-y-6'}>
+                        {profiles.map((profile) => (
+                            <div key={profile.id} className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:shadow-sm'}>
+                                {/* Profile Header */}
+                                <div className={'apa:p-4 apa:border-b apa:border-muted apa:flex apa:flex-wrap apa:justify-between apa:items-center apa:gap-4'}>
+                                    <div>
+                                        <div className={'apa:flex apa:items-center apa:gap-3'}>
+                                            <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>{profile.name}</h3>
+                                            <Badge tone={'accent'} variant={'solid'}>
+                                                Egg: {profile.egg?.name || `Egg #${profile.egg_id}`}
+                                            </Badge>
+                                            {profile.primary_range_start && profile.primary_range_end ? (
+                                                <Badge tone={'neutral'} variant={'soft'}>
+                                                    Primary Port Range: {profile.primary_range_start}–{profile.primary_range_end}
+                                                </Badge>
+                                            ) : (
+                                                <Badge tone={'neutral'} variant={'soft'}>
+                                                    Primary Port: Any Allowed
+                                                </Badge>
+                                            )}
+                                        </div>
+                                        {profile.description && (
+                                            <p className={'apa:text-xs apa:text-muted-foreground apa:mt-1'}>{profile.description}</p>
+                                        )}
+                                    </div>
+                                    <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                        <Button onClick={() => openSubRuleModal(profile)}>
+                                            + Add Secondary Port
+                                        </Button>
+                                        <button
+                                            onClick={() => handleDeleteProfile(profile.id)}
+                                            className={'apa:text-destructive apa:text-xs apa:font-medium apa:p-2 apa:hover:underline'}
+                                        >
+                                            Delete Game
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Secondary Ports List */}
+                                <div className={'apa:p-4'}>
+                                    {(!profile.sub_rules || profile.sub_rules.length === 0) ? (
+                                        <p className={'apa:text-xs apa:text-muted-foreground apa:py-2'}>
+                                            No secondary ports added yet. Click <strong>+ Add Secondary Port</strong> to add RCON, HTTP, ASE, Query, etc.
+                                        </p>
+                                    ) : (
+                                        <div className={'apa:overflow-x-auto'}>
+                                            <table className={'apa:w-full apa:text-left apa:border-collapse'}>
+                                                <thead>
+                                                    <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase'}>
+                                                        <th className={'apa:py-2 apa:px-3'}>Service / Role</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Environment Key</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Strategy</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Port Formula / Range</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Auto-Create</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Required</th>
+                                                        <th className={'apa:py-2 apa:px-3'}>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className={'apa:divide-y apa:divide-muted'}>
+                                                    {profile.sub_rules.map((subRule) => (
+                                                        <tr key={subRule.id} className={'apa:hover:bg-muted/20'}>
+                                                            <td className={'apa:py-2 apa:px-3 apa:font-medium apa:text-sm'}>
+                                                                {subRule.name}
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3'}>
+                                                                <span className={'apa:font-mono apa:text-xs apa:font-bold apa:text-primary'}>
+                                                                    {subRule.env_variable}
+                                                                </span>
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3'}>
+                                                                <Badge tone={'neutral'} variant={'soft'}>
+                                                                    {subRule.allocation_type === 'offset'
+                                                                        ? 'Fixed Offset'
+                                                                        : subRule.allocation_type === 'range'
+                                                                          ? 'Port Range'
+                                                                          : 'Any Available'}
+                                                                </Badge>
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3 apa:font-mono apa:text-xs'}>
+                                                                {subRule.allocation_type === 'offset' && (
+                                                                    <span>SERVER_PORT + {subRule.offset_value}</span>
+                                                                )}
+                                                                {subRule.allocation_type === 'range' && (
+                                                                    <span>{subRule.range_start}–{subRule.range_end}</span>
+                                                                )}
+                                                                {subRule.allocation_type === 'any_available' && (
+                                                                    <span className={'apa:text-muted-foreground'}>Any Free Port</span>
+                                                                )}
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3 apa:text-xs'}>
+                                                                {subRule.auto_create_allocation ? (
+                                                                    <span className={'apa:text-success apa:font-medium'}>Yes</span>
+                                                                ) : (
+                                                                    <span className={'apa:text-muted-foreground'}>No</span>
+                                                                )}
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3 apa:text-xs'}>
+                                                                {subRule.is_required ? (
+                                                                    <span className={'apa:text-foreground apa:font-medium'}>Required</span>
+                                                                ) : (
+                                                                    <span className={'apa:text-muted-foreground'}>Optional</span>
+                                                                )}
+                                                            </td>
+                                                            <td className={'apa:py-2 apa:px-3'}>
+                                                                <button
+                                                                    onClick={() => handleDeleteSubRule(profile.id, subRule.id)}
+                                                                    className={'apa:text-destructive apa:text-xs apa:hover:underline'}
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* Sub-Rule Creation Modal / Form */}
+                {activeProfileForSubRule && (
+                    <TitledGreyBox title={`Add Secondary Port to "${activeProfileForSubRule.name}"`}>
+                        <form onSubmit={handleCreateSubRule} className={'apa:space-y-4 apa:p-2'}>
+                            <div className={'apa:grid apa:grid-cols-1 md:apa:grid-cols-3 apa:gap-4'}>
+                                {/* Target Egg Variable */}
+                                <div>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Target Environment Variable
+                                    </label>
+                                    {eggVariables.length > 0 ? (
+                                        <div className={'apa:space-y-2'}>
+                                            <select
+                                                value={subRuleVarOption}
+                                                onChange={(e) => handleSubRuleVarSelect(e.target.value)}
+                                                className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                required
+                                            >
+                                                <option value={''}>Select an Egg Variable...</option>
+                                                {eggVariables.map((v) => (
+                                                    <option key={v.id} value={v.env_variable}>
+                                                        {v.env_variable} — {v.name}
+                                                    </option>
+                                                ))}
+                                                <option value={'__CUSTOM__'}>+ Custom Variable Name...</option>
+                                            </select>
+                                            {subRuleVarOption === '__CUSTOM__' && (
+                                                <input
+                                                    type={'text'}
+                                                    value={subRuleEnvVar}
+                                                    onChange={(e) => setSubRuleEnvVar(e.target.value.toUpperCase())}
+                                                    placeholder={'e.g. HTTP_PORT, ASE_PORT'}
+                                                    className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                                    required
+                                                />
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <input
+                                            type={'text'}
+                                            value={subRuleEnvVar}
+                                            onChange={(e) => setSubRuleEnvVar(e.target.value.toUpperCase())}
+                                            placeholder={'e.g. HTTP_PORT, ASE_PORT, RCON_PORT'}
+                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm apa:font-mono'}
+                                            required
+                                        />
+                                    )}
+                                </div>
+
+                                {/* Service Name */}
+                                <div>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Service Name
+                                    </label>
+                                    <input
+                                        type={'text'}
+                                        value={subRuleName}
+                                        onChange={(e) => setSubRuleName(e.target.value)}
+                                        placeholder={'e.g. MTA Web HTTP, ASE Query'}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        required
+                                    />
+                                </div>
+
+                                {/* Strategy */}
+                                <div>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Allocation Mode
+                                    </label>
+                                    <select
+                                        value={subRuleAllocType}
+                                        onChange={(e) => setSubRuleAllocType(e.target.value as any)}
+                                        className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                    >
+                                        <option value={'offset'}>Fixed Offset from SERVER_PORT</option>
+                                        <option value={'any_available'}>Any Free Port on Node/IP</option>
+                                        <option value={'range'}>Specific Port Range</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Mode Specific Inputs */}
+                            {subRuleAllocType === 'offset' && (
+                                <div className={'apa:rounded apa:border apa:border-muted apa:p-3 apa:bg-muted/10'}>
+                                    <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
+                                        Offset from SERVER_PORT (e.g. 2 for MTA HTTP, 123 for ASE)
+                                    </label>
+                                    <input
+                                        type={'number'}
+                                        value={subRuleOffset}
+                                        onChange={(e) => setSubRuleOffset(Number(e.target.value))}
+                                        className={'apa:w-48 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                        required
+                                    />
                                     <p className={'apa:text-xs apa:text-muted-foreground apa:mt-1'}>
-                                        Calculated as: <code className={'apa:font-mono'}>SERVER_PORT + {offsetValue}</code> (e.g. 22003 + 2 = 22005)
+                                        Port formula: <code className={'apa:font-mono'}>SERVER_PORT + {subRuleOffset}</code>
                                     </p>
                                 </div>
                             )}
 
-                            {allocationType === 'range' && (
-                                <div className={'apa:flex apa:gap-2'}>
+                            {subRuleAllocType === 'range' && (
+                                <div className={'apa:flex apa:gap-4 apa:rounded apa:border apa:border-muted apa:p-3 apa:bg-muted/10'}>
                                     <div>
                                         <label className={'apa:block apa:text-xs apa:font-medium apa:text-muted-foreground apa:mb-1'}>
                                             Range Start
                                         </label>
                                         <input
                                             type={'number'}
-                                            value={rangeStart}
-                                            onChange={(e) => setRangeStart(Number(e.target.value))}
-                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                            value={subRuleRangeStart}
+                                            onChange={(e) => setSubRuleRangeStart(Number(e.target.value))}
+                                            className={'apa:w-40 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                         />
                                     </div>
                                     <div>
@@ -374,122 +667,47 @@ export default function AdminScreen() {
                                         </label>
                                         <input
                                             type={'number'}
-                                            value={rangeEnd}
-                                            onChange={(e) => setRangeEnd(Number(e.target.value))}
-                                            className={'apa:w-full apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
+                                            value={subRuleRangeEnd}
+                                            onChange={(e) => setSubRuleRangeEnd(Number(e.target.value))}
+                                            className={'apa:w-40 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
                                         />
                                     </div>
                                 </div>
                             )}
 
                             {/* Checkbox settings */}
-                            <div className={'apa:flex apa:items-center apa:gap-4 apa:pt-6'}>
+                            <div className={'apa:flex apa:items-center apa:gap-4'}>
                                 <label className={'apa:flex apa:items-center apa:gap-2 apa:text-sm'}>
                                     <input
                                         type={'checkbox'}
-                                        checked={autoCreate}
-                                        onChange={(e) => setAutoCreate(e.target.checked)}
+                                        checked={subRuleAutoCreate}
+                                        onChange={(e) => setSubRuleAutoCreate(e.target.checked)}
                                         className={'apa:rounded'}
                                     />
-                                    <span>Auto-create on node</span>
+                                    <span>Auto-create port on node if missing</span>
                                 </label>
                                 <label className={'apa:flex apa:items-center apa:gap-2 apa:text-sm'}>
                                     <input
                                         type={'checkbox'}
-                                        checked={isRequired}
-                                        onChange={(e) => setIsRequired(e.target.checked)}
+                                        checked={subRuleRequired}
+                                        onChange={(e) => setSubRuleRequired(e.target.checked)}
                                         className={'apa:rounded'}
                                     />
                                     <span>Strictly Required</span>
                                 </label>
                             </div>
-                        </div>
 
-                        <div className={'apa:flex apa:justify-end apa:pt-2'}>
-                            <Button type={'submit'} isLoading={submitting} disabled={isReservedVar}>
-                                Add Sub-Rule
-                            </Button>
-                        </div>
-                    </form>
-                </TitledGreyBox>
-
-                {/* Existing Rules List */}
-                <TitledGreyBox title={'Configured Egg Port Sub-Rules'}>
-                    {rules.length === 0 ? (
-                        <p className={'apa:p-4 apa:text-sm apa:text-muted-foreground'}>
-                            No egg port sub-rules configured yet. Select an Egg above to configure additional ports (e.g. for Rust or MTA).
-                        </p>
-                    ) : (
-                        <div className={'apa:overflow-x-auto'}>
-                            <table className={'apa:w-full apa:text-left apa:border-collapse'}>
-                                <thead>
-                                    <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase'}>
-                                        <th className={'apa:py-3 apa:px-4'}>Target Egg</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Service Name</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Sub-Rule Variable</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Strategy</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Formula / Config</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Auto-Create</th>
-                                        <th className={'apa:py-3 apa:px-4'}>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className={'apa:divide-y apa:divide-muted'}>
-                                    {rules.map((rule) => (
-                                        <tr key={rule.id} className={'apa:hover:bg-muted/30'}>
-                                            <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
-                                                {rule.egg?.name || `Egg #${rule.egg_id}`}
-                                            </td>
-                                            <td className={'apa:py-3 apa:px-4'}>{rule.name}</td>
-                                            <td className={'apa:py-3 apa:px-4'}>
-                                                <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                                    <span className={'apa:font-mono apa:text-sm apa:text-primary apa:font-semibold'}>
-                                                        {rule.env_variable}
-                                                    </span>
-                                                    <Badge tone={'accent'} variant={'soft'}>Sub-Rule</Badge>
-                                                </div>
-                                            </td>
-                                            <td className={'apa:py-3 apa:px-4'}>
-                                                <Badge tone={'neutral'} variant={'soft'}>
-                                                    {rule.allocation_type === 'offset'
-                                                        ? 'Fixed Offset'
-                                                        : rule.allocation_type === 'range'
-                                                          ? 'Range'
-                                                          : 'Any Available'}
-                                                </Badge>
-                                            </td>
-                                            <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm'}>
-                                                {rule.allocation_type === 'offset' && (
-                                                    <span className={'apa:text-foreground'}>SERVER_PORT + {rule.offset_value}</span>
-                                                )}
-                                                {rule.allocation_type === 'range' && (
-                                                    <span>{rule.range_start}-{rule.range_end}</span>
-                                                )}
-                                                {rule.allocation_type === 'any_available' && (
-                                                    <span className={'apa:text-muted-foreground'}>Any Free Port</span>
-                                                )}
-                                            </td>
-                                            <td className={'apa:py-3 apa:px-4'}>
-                                                {rule.auto_create_allocation ? (
-                                                    <span className={'apa:text-success apa:text-xs apa:font-medium'}>Yes</span>
-                                                ) : (
-                                                    <span className={'apa:text-muted-foreground apa:text-xs'}>No</span>
-                                                )}
-                                            </td>
-                                            <td className={'apa:py-3 apa:px-4'}>
-                                                <button
-                                                    onClick={() => handleDeleteRule(rule.id)}
-                                                    className={'apa:text-destructive apa:text-xs apa:font-medium apa:hover:underline'}
-                                                >
-                                                    Delete
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-                </TitledGreyBox>
+                            <div className={'apa:flex apa:justify-end apa:gap-2 apa:pt-2'}>
+                                <Button onClick={() => setActiveProfileForSubRule(null)}>
+                                    Cancel
+                                </Button>
+                                <Button type={'submit'} isLoading={submittingSubRule} disabled={isSubRuleReserved}>
+                                    Save Secondary Port
+                                </Button>
+                            </div>
+                        </form>
+                    </TitledGreyBox>
+                )}
             </div>
         </PageContentBlock>
     );

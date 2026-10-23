@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace AutoPortAllocator\Services;
 
 use AutoPortAllocator\Data\AllocationPlanResult;
+use AutoPortAllocator\Models\GameProfile;
 use AutoPortAllocator\Models\PortRule;
 use AutoPortAllocator\Models\ServerAllocatedPort;
+use AutoPortAllocator\Models\SubRule;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Pterodactyl\Contracts\Allocations\CreatesAllocations;
@@ -38,8 +40,22 @@ class AutoPortAllocationService
         array $existingAdditional = [],
         array $environment = []
     ): AllocationPlanResult {
-        /** @var Collection<int, PortRule> $rules */
-        $rules = PortRule::query()->where('egg_id', $eggId)->get();
+        /** @var GameProfile|null $profile */
+        $profile = GameProfile::query()->where('egg_id', $eggId)->with('subRules')->first();
+
+        // Validate primary allocation against profile range if configured
+        if ($profile !== null && $profile->primary_range_start !== null && $profile->primary_range_end !== null) {
+            if ($primaryAllocation->port < $profile->primary_range_start || $primaryAllocation->port > $profile->primary_range_end) {
+                throw new DisplayException(
+                    "Primary port {$primaryAllocation->port} is outside the allowed primary port range ({$profile->primary_range_start}-{$profile->primary_range_end}) for \"{$profile->name}\"."
+                );
+            }
+        }
+
+        /** @var Collection<int, SubRule|PortRule> $rules */
+        $rules = $profile !== null && $profile->subRules->isNotEmpty()
+            ? $profile->subRules
+            : PortRule::query()->where('egg_id', $eggId)->get();
 
         if ($rules->isEmpty()) {
             return new AllocationPlanResult(
@@ -69,7 +85,9 @@ class AutoPortAllocationService
             $environment[$rule->env_variable] = (string) $allocation->port;
 
             $mappedRules[] = [
-                'rule_id' => $rule->id,
+                'profile_id' => $profile?->id,
+                'sub_rule_id' => $rule instanceof SubRule ? $rule->id : null,
+                'rule_id' => $rule instanceof PortRule ? $rule->id : null,
                 'allocation_id' => $allocation->id,
                 'env_variable' => $rule->env_variable,
                 'port_name' => $rule->name,
@@ -87,7 +105,7 @@ class AutoPortAllocationService
     /**
      * Records the port mappings for a server after creation.
      *
-     * @param  list<array{rule_id: int|null, allocation_id: int, env_variable: string, port_name: string, port: int}>  $mappedRules
+     * @param  list<array{profile_id?: int|null, sub_rule_id?: int|null, rule_id?: int|null, allocation_id: int, env_variable: string, port_name: string, port: int}>  $mappedRules
      */
     public function recordMappings(Server $server, array $mappedRules): void
     {
@@ -103,7 +121,9 @@ class AutoPortAllocationService
                         'allocation_id' => $mapping['allocation_id'],
                     ],
                     [
-                        'rule_id' => $mapping['rule_id'],
+                        'profile_id' => $mapping['profile_id'] ?? null,
+                        'sub_rule_id' => $mapping['sub_rule_id'] ?? null,
+                        'rule_id' => $mapping['rule_id'] ?? null,
                         'env_variable' => $mapping['env_variable'],
                         'port_name' => $mapping['port_name'],
                     ]
@@ -125,8 +145,14 @@ class AutoPortAllocationService
             return;
         }
 
-        /** @var Collection<int, PortRule> $rules */
-        $rules = PortRule::query()->where('egg_id', $egg->id)->get();
+        /** @var GameProfile|null $profile */
+        $profile = GameProfile::query()->where('egg_id', $egg->id)->with('subRules')->first();
+
+        /** @var Collection<int, SubRule|PortRule> $rules */
+        $rules = $profile !== null && $profile->subRules->isNotEmpty()
+            ? $profile->subRules
+            : PortRule::query()->where('egg_id', $egg->id)->get();
+
         if ($rules->isEmpty()) {
             return;
         }
@@ -135,7 +161,7 @@ class AutoPortAllocationService
         $assignedAllocationIds = $existingAllocations->pluck('id')->all();
         $node = $server->node;
 
-        DB::transaction(function () use ($server, $egg, $rules, $node, $primary, $assignedAllocationIds): void {
+        DB::transaction(function () use ($server, $egg, $profile, $rules, $node, $primary, $assignedAllocationIds): void {
             $claimedIds = $assignedAllocationIds;
 
             foreach ($rules as $rule) {
@@ -173,7 +199,9 @@ class AutoPortAllocationService
                         'allocation_id' => $allocation->id,
                     ],
                     [
-                        'rule_id' => $rule->id,
+                        'profile_id' => $profile?->id,
+                        'sub_rule_id' => $rule instanceof SubRule ? $rule->id : null,
+                        'rule_id' => $rule instanceof PortRule ? $rule->id : null,
                         'env_variable' => $rule->env_variable,
                         'port_name' => $rule->name,
                     ]
@@ -198,15 +226,15 @@ class AutoPortAllocationService
      * @param  list<int>  $claimedIds
      */
     private function resolveAllocationForRule(
-        PortRule $rule,
+        SubRule|PortRule $rule,
         Node $node,
         Allocation $primaryAllocation,
         array $claimedIds,
         ?int $currentServerId = null,
     ): ?Allocation {
         return match ($rule->allocation_type) {
-            PortRule::TYPE_OFFSET => $this->resolveOffsetAllocation($rule, $node, $primaryAllocation, $claimedIds, $currentServerId),
-            PortRule::TYPE_RANGE => $this->resolveRangeAllocation($rule, $node, $primaryAllocation, $claimedIds),
+            SubRule::TYPE_OFFSET => $this->resolveOffsetAllocation($rule, $node, $primaryAllocation, $claimedIds, $currentServerId),
+            SubRule::TYPE_RANGE => $this->resolveRangeAllocation($rule, $node, $primaryAllocation, $claimedIds),
             default => $this->resolveAnyAvailableAllocation($rule, $node, $primaryAllocation, $claimedIds),
         };
     }
@@ -217,7 +245,7 @@ class AutoPortAllocationService
      * @param  list<int>  $claimedIds
      */
     private function resolveOffsetAllocation(
-        PortRule $rule,
+        SubRule|PortRule $rule,
         Node $node,
         Allocation $primaryAllocation,
         array $claimedIds,
@@ -261,122 +289,98 @@ class AutoPortAllocationService
                 ->where('node_id', $node->id)
                 ->where('ip', $ip)
                 ->where('port', $targetPort)
-                ->firstOrFail();
+                ->first();
+
+            if ($allocation === null) {
+                throw new DisplayException(
+                    "Failed to auto-create allocation for offset port {$targetPort} on node #{$node->id} ({$ip})."
+                );
+            }
         }
 
-        if ($allocation->server_id !== null && $allocation->server_id !== $currentServerId) {
+        // Verify availability
+        if (in_array($allocation->id, $claimedIds, true)) {
             if ($rule->is_required) {
                 throw new DisplayException(
-                    "Required offset port {$targetPort} ({$rule->name}) on {$ip} is already occupied by another server."
+                    "Offset port {$targetPort} ({$rule->name}) is already claimed by another rule in this deployment."
                 );
             }
 
             return null;
         }
 
-        if (in_array($allocation->id, $claimedIds, true)) {
-            throw new DisplayException(
-                "Port conflict: port {$targetPort} ({$rule->name}) has already been claimed in this allocation batch."
-            );
+        if ($allocation->server_id !== null && $allocation->server_id !== $currentServerId) {
+            if ($rule->is_required) {
+                throw new DisplayException(
+                    "Offset port {$targetPort} ({$rule->name}) on node #{$node->id} ({$ip}) is already in use by another server."
+                );
+            }
+
+            return null;
         }
 
         return $allocation;
     }
 
     /**
-     * Resolves any available unassigned allocation on the same node (preferring the same IP).
-     *
-     * @param  list<int>  $claimedIds
-     */
-    private function resolveAnyAvailableAllocation(
-        PortRule $rule,
-        Node $node,
-        Allocation $primaryAllocation,
-        array $claimedIds,
-    ): ?Allocation {
-        // Try same IP first
-        $allocation = Allocation::query()
-            ->where('node_id', $node->id)
-            ->where('ip', $primaryAllocation->ip)
-            ->whereNull('server_id')
-            ->whereNotIn('id', $claimedIds)
-            ->orderBy('port')
-            ->first();
-
-        // If none on same IP, try any unassigned on the node
-        if ($allocation === null) {
-            $allocation = Allocation::query()
-                ->where('node_id', $node->id)
-                ->whereNull('server_id')
-                ->whereNotIn('id', $claimedIds)
-                ->orderBy('port')
-                ->first();
-        }
-
-        if ($allocation === null && $rule->is_required) {
-            throw new DisplayException(
-                "No available unassigned port found on node #{$node->id} for rule \"{$rule->name}\" ({$rule->env_variable})."
-            );
-        }
-
-        return $allocation;
-    }
-
-    /**
-     * Resolves an allocation within a designated port range.
+     * Resolves an available allocation within a specified port range.
      *
      * @param  list<int>  $claimedIds
      */
     private function resolveRangeAllocation(
-        PortRule $rule,
+        SubRule|PortRule $rule,
         Node $node,
         Allocation $primaryAllocation,
-        array $claimedIds,
+        array $claimedIds
     ): ?Allocation {
-        $start = $rule->range_start;
-        $end = $rule->range_end;
+        $ip = $primaryAllocation->ip;
+        $start = $rule->range_start ?? 1024;
+        $end = $rule->range_end ?? 65535;
 
-        if ($start === null || $end === null || $start > $end) {
-            throw new DisplayException("Invalid port range configured for rule \"{$rule->name}\".");
-        }
-
+        /** @var Allocation|null $allocation */
         $allocation = Allocation::query()
             ->where('node_id', $node->id)
-            ->where('ip', $primaryAllocation->ip)
+            ->where('ip', $ip)
             ->whereBetween('port', [$start, $end])
             ->whereNull('server_id')
             ->whereNotIn('id', $claimedIds)
             ->orderBy('port')
             ->first();
 
-        if ($allocation === null && $rule->auto_create_allocation) {
-            // Find existing ports on node/ip within range
-            $existingPorts = Allocation::query()
-                ->where('node_id', $node->id)
-                ->where('ip', $primaryAllocation->ip)
-                ->whereBetween('port', [$start, $end])
-                ->pluck('port')
-                ->all();
-
-            $free = array_diff(range($start, $end), $existingPorts);
-            if (! empty($free)) {
-                $targetPort = reset($free);
-                $this->createsAllocations->create($node, [
-                    'allocation_ip' => $primaryAllocation->ip,
-                    'allocation_ports' => [$targetPort],
-                ]);
-
-                $allocation = Allocation::query()
-                    ->where('node_id', $node->id)
-                    ->where('ip', $primaryAllocation->ip)
-                    ->where('port', $targetPort)
-                    ->first();
-            }
+        if ($allocation === null && $rule->is_required) {
+            throw new DisplayException(
+                "No free allocation found in range {$start}-{$end} for rule \"{$rule->name}\" on node #{$node->id} ({$ip})."
+            );
         }
+
+        return $allocation;
+    }
+
+    /**
+     * Resolves any unassigned allocation on the node and IP.
+     *
+     * @param  list<int>  $claimedIds
+     */
+    private function resolveAnyAvailableAllocation(
+        SubRule|PortRule $rule,
+        Node $node,
+        Allocation $primaryAllocation,
+        array $claimedIds
+    ): ?Allocation {
+        $ip = $primaryAllocation->ip;
+
+        /** @var Allocation|null $allocation */
+        $allocation = Allocation::query()
+            ->where('node_id', $node->id)
+            ->where('ip', $ip)
+            ->whereNull('server_id')
+            ->whereNotIn('id', $claimedIds)
+            ->orderBy('port')
+            ->first();
 
         if ($allocation === null && $rule->is_required) {
             throw new DisplayException(
-                "No available port in range {$start}-{$end} on node #{$node->id} for rule \"{$rule->name}\"."
+                "No available free allocation found on node #{$node->id} ({$ip}) for rule \"{$rule->name}\"."
             );
         }
 

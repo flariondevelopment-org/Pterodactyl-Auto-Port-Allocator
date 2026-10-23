@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AutoPortAllocator\Http\Controllers\Server;
 
+use AutoPortAllocator\Models\GameProfile;
 use AutoPortAllocator\Models\PortRule;
 use AutoPortAllocator\Models\ServerAllocatedPort;
 use AutoPortAllocator\Services\AutoPortAllocationService;
@@ -26,21 +27,26 @@ class ServerPortAllocationController
 
         $trackedPorts = ServerAllocatedPort::query()
             ->where('server_id', $server->id)
-            ->with(['allocation', 'rule'])
+            ->with(['allocation', 'profile', 'subRule', 'rule'])
             ->get();
 
-        $eggRules = $server->egg !== null
-            ? PortRule::query()->where('egg_id', $server->egg->id)->get()
-            : collect();
+        $profile = $server->egg !== null
+            ? GameProfile::query()->where('egg_id', $server->egg->id)->with('subRules')->first()
+            : null;
+
+        $eggRules = $profile !== null && $profile->subRules->isNotEmpty()
+            ? $profile->subRules
+            : ($server->egg !== null ? PortRule::query()->where('egg_id', $server->egg->id)->get() : collect());
 
         // Calculate missing required rules
         $trackedEnvVars = $trackedPorts->pluck('env_variable')->all();
-        $missingRules = $eggRules->filter(fn (PortRule $rule) => ! in_array($rule->env_variable, $trackedEnvVars, true))->values();
+        $missingRules = $eggRules->filter(fn ($rule) => ! in_array($rule->env_variable, $trackedEnvVars, true))->values();
 
         return new JsonResponse([
             'primary_allocation' => $server->allocation,
             'all_allocations' => $server->allocations,
             'assigned_roles' => $trackedPorts,
+            'game_profile' => $profile,
             'egg_rules' => $eggRules,
             'missing_rules' => $missingRules,
         ]);

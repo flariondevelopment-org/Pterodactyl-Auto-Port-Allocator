@@ -92,25 +92,20 @@ Auto-Port-Allocator/
 
 ---
 
-## 5. Port Tahsis Algoritmaları & Kural Mantığı
+## 5. Oyun Bazlı Profil & Port Tahsis Mimarisi (Game Profiles & Sub-Rules)
 
-### Temel Mimari: `SERVER_PORT` ve Alt Kurallar (Sub-Rules)
-- **Ana Port (`SERVER_PORT`):** Pterodactyl panelinde bir sunucu oluşturulduğunda belirlenen birincil port (`allocation_id`) her zaman varsayılan oyun portu olarak atanır ve sistem genelinde `SERVER_PORT` rezerve değişkeni ile temsil edilir. Kullanıcı veya yönetici `SERVER_PORT` için kural tanımlayamaz veya değer atayamaz; `SERVER_PORT` sistemin değişmez temel referansıdır.
-- **Alt Kurallar (Sub-Rules):** Auto Port Allocator üzerinde tanımlanan tüm kurallar birer **alt kuraldır (sub-rule)**. Bu kurallar ek portları (secondary/tertiary allocations) otomatik tahsis eder ve değerlerini ilgili yumurta ortam değişkenine (örn: `RCON_PORT`, `APP_PORT`, `HTTP_PORT`, `ASE_PORT`) aktarır.
+### 1. Oyun Profili (GameProfile)
+Kullanıcı veya yönetici doğrudan oyuna özel bir profil oluşturur (örn: `MTA`, `Rust`, `Palworld`):
+- **İlişkili Yumurta (`egg_id`):** Profilin geçerli olduğu oyun yumurtası.
+- **Ana Port Aralığı (`primary_range_start` - `primary_range_end`):** Birincil oyun portunun (`SERVER_PORT`) bulunması gereken port aralığı (örn: MTA için `22003 - 22050`).
 
-Bir yumurta (Egg) için oluşturulabilecek alt kural tipleri:
-
-1. **Offset Kuralı (Fixed Offset from SERVER_PORT):**
-   - Birincil porta (`SERVER_PORT`) belirli bir sayı ekleyerek aynı IP üzerinde tahsis arar: `SERVER_PORT + offset`.
-   - Örnek MTA: `SERVER_PORT` = 22003 ise, `HTTP_PORT` = Primary + 2 (22005), `ASE_PORT` = Primary + 123 (22126).
-   - Eğer offset portu o node/IP üzerinde allocation olarak yoksa veya doluysa, admin yapılandırmasına göre ya otomatik oluşturulur ya da hata fırlatılır.
-
-2. **Any Available Kuralı (Herhangi bir boş port):**
-   - Aynı Node ve aynı IP üzerinde bulunan ve henüz bir sunucuya atanmamış ilk boş allocation seçilir.
-   - Örnek Rust: `RCON_PORT` veya `APP_PORT` için ardışık olma zorunluluğu yoktur, boşta olan herhangi bir port atanabilir.
-
-3. **Range / Pool Kuralı:**
-   - Belirlenen bir port aralığından (örn. 28000-28100) boş port tahsis edilir.
+### 2. İkincil Port Alt Kuralları (Sub-Rules)
+Oyun profilinin içerisinde birden fazla ikincil port (secondary allocations) tanımlanır. Her bir port için ayrı strateji belirlenebilir:
+- **Fixed Offset (SERVER_PORT + offset):** Birincil porta belirli bir sayı eklenerek port tahsis edilir (örn: MTA HTTP için `SERVER_PORT + 2`, ASE için `SERVER_PORT + 123`).
+- **Specific Range:** İkincil port için özel bir port havuzundan (örn: RCON için `28016 - 28025`) boş port seçilir.
+- **Any Available:** Node ve IP üzerindeki ilk uygun boş allocation atanır.
+- **Auto-create on Node:** İlgili offset veya range portu node'da allocation olarak henüz tanımlanmamışsa otomatik oluşturulması seçeneği.
+- **Strictly Required:** Port bulunamadığında kurulumu durdurma veya opsiyonel bırakma seçeneği.
 
 ---
 
