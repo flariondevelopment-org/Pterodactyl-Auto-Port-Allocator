@@ -332,7 +332,7 @@ export default function AdminScreen() {
                                                 {rule.env_variable}
                                             </td>
                                             <td className={'apa:py-3 apa:px-4'}>
-                                                <Badge variant={'outline'}>
+                                                <Badge tone={'neutral'} variant={'soft'}>
                                                     {rule.allocation_type === 'offset'
                                                         ? 'Fixed Offset'
                                                         : rule.allocation_type === 'range'

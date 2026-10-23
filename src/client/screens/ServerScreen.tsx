@@ -3,7 +3,6 @@ import {
     Alert,
     Badge,
     Button,
-    Card,
     http,
     httpErrorToHuman,
     ServerContentBlock,
@@ -11,6 +10,7 @@ import {
     TitledGreyBox,
     toast,
     useCurrentServerRequired,
+    useCurrentServerUuid,
 } from '@pterodactyl/sdk';
 
 interface Allocation {
@@ -48,6 +48,8 @@ interface ServerPortsData {
 
 export default function ServerScreen() {
     const server = useCurrentServerRequired();
+    const serverUuid = useCurrentServerUuid() || server.attributes.uuid;
+
     const [data, setData] = useState<ServerPortsData | null>(null);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
@@ -56,7 +58,7 @@ export default function ServerScreen() {
     const loadData = async () => {
         try {
             setError(null);
-            const response = await http.get(`/api/client/servers/${server.uuid}/extensions/auto-port-allocator/ports`);
+            const response = await http.get(`/api/client/servers/${serverUuid}/extensions/auto-port-allocator/ports`);
             setData(response.data);
         } catch (err) {
             setError(httpErrorToHuman(err));
@@ -67,12 +69,12 @@ export default function ServerScreen() {
 
     useEffect(() => {
         loadData();
-    }, [server.uuid]);
+    }, [serverUuid]);
 
     const handleSync = async () => {
         try {
             setSyncing(true);
-            const response = await http.post(`/api/client/servers/${server.uuid}/extensions/auto-port-allocator/sync`);
+            const response = await http.post(`/api/client/servers/${serverUuid}/extensions/auto-port-allocator/sync`);
             setData(response.data);
             toast.success('Port allocations synchronized successfully.');
         } catch (err) {
@@ -141,7 +143,7 @@ export default function ServerScreen() {
                                         <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
                                             <div className={'apa:flex apa:items-center apa:gap-2'}>
                                                 <span>Primary Game Port</span>
-                                                <Badge variant={'default'}>Primary</Badge>
+                                                <Badge tone={'accent'} variant={'solid'}>Primary</Badge>
                                             </div>
                                         </td>
                                         <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-sm apa:text-primary'}>
@@ -154,7 +156,7 @@ export default function ServerScreen() {
                                             {data.primary_allocation.port}
                                         </td>
                                         <td className={'apa:py-3 apa:px-4'}>
-                                            <Badge variant={'outline'}>Main</Badge>
+                                            <Badge tone={'neutral'} variant={'soft'}>Main</Badge>
                                         </td>
                                     </tr>
                                 )}
@@ -184,9 +186,9 @@ export default function ServerScreen() {
                                                 </td>
                                                 <td className={'apa:py-3 apa:px-4'}>
                                                     {role ? (
-                                                        <Badge variant={'secondary'}>Auto-Allocated</Badge>
+                                                        <Badge tone={'success'} variant={'soft'}>Auto-Allocated</Badge>
                                                     ) : (
-                                                        <Badge variant={'outline'}>Manual</Badge>
+                                                        <Badge tone={'neutral'} variant={'soft'}>Manual</Badge>
                                                     )}
                                                 </td>
                                             </tr>
