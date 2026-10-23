@@ -10,7 +10,7 @@ jobs:
           node-version: 22
       - uses: actions/checkout@v4
         with:
-          repository: pterodactyl/panel-next
+          repository: pterodactyl/panel
           ref: 2.0-develop
           path: .panel
       - run: npm ci && npm run sdk:generate && npm run sdk:testing
