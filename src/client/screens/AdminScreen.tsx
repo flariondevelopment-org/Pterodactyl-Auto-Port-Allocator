@@ -387,12 +387,12 @@ export default function AdminScreen() {
                             );
 
                             return (
-                                <div key={profile.id} className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:shadow-sm'}>
+                                <div key={profile.id} className={'apa:rounded-lg apa:border apa:border-muted apa:bg-card apa:shadow-sm apa:p-5 apa:space-y-4'}>
                                     {/* Profile Header */}
-                                    <div className={'apa:p-4 apa:border-b apa:border-muted apa:flex apa:flex-wrap apa:justify-between apa:items-center apa:gap-4'}>
+                                    <div className={'apa:flex apa:flex-wrap apa:justify-between apa:items-start apa:gap-4 apa:pb-3 apa:border-b apa:border-muted'}>
                                         <div>
-                                            <div className={'apa:flex apa:items-center apa:gap-3'}>
-                                                <h3 className={'apa:text-base apa:font-bold apa:text-foreground'}>{profile.name}</h3>
+                                            <div className={'apa:flex apa:items-center apa:gap-3 apa:flex-wrap'}>
+                                                <h3 className={'apa:text-lg apa:font-bold apa:text-foreground'}>{profile.name}</h3>
                                                 <Badge tone={'accent'} variant={'solid'}>
                                                     Egg: {profile.egg?.name || `Egg #${profile.egg_id}`}
                                                 </Badge>
@@ -411,7 +411,7 @@ export default function AdminScreen() {
                                             )}
                                         </div>
                                         <div className={'apa:flex apa:items-center apa:gap-2'}>
-                                            <Button onClick={() => openSubRuleModal(profile)}>
+                                            <Button size={'small'} onClick={() => openSubRuleModal(profile)}>
                                                 + Add Secondary Port
                                             </Button>
                                             <button
@@ -423,39 +423,83 @@ export default function AdminScreen() {
                                         </div>
                                     </div>
 
-                                    {/* Secondary Ports List */}
-                                    <div className={'apa:p-4'}>
-                                        {(!profile.sub_rules || profile.sub_rules.length === 0) ? (
-                                            <p className={'apa:text-xs apa:text-muted-foreground apa:py-2'}>
-                                                No secondary ports added yet. Click <strong>+ Add Secondary Port</strong> to open the pop-up and configure extra ports.
-                                            </p>
-                                        ) : (
-                                            <div className={'apa:overflow-x-auto'}>
-                                                <table className={'apa:w-full apa:text-left apa:border-collapse'}>
-                                                    <thead>
-                                                        <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase'}>
-                                                            <th className={'apa:py-2 apa:px-3'}>Service / Role</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Environment Key</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Strategy</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Port Formula / Range(s)</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Auto-Create</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Required</th>
-                                                            <th className={'apa:py-2 apa:px-3'}>Actions</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className={'apa:divide-y apa:divide-muted'}>
-                                                        {profile.sub_rules.map((subRule) => (
+                                    {/* Side Ports Table Inside The Box */}
+                                    <div className={'apa:rounded-lg apa:border apa:border-muted apa:overflow-hidden apa:bg-muted/10'}>
+                                        <div className={'apa:px-4 apa:py-3 apa:bg-muted/20 apa:border-b apa:border-muted apa:flex apa:justify-between apa:items-center'}>
+                                            <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                <span className={'apa:text-xs apa:font-bold apa:uppercase apa:tracking-wider apa:text-foreground'}>
+                                                    Game Ports & Side Ports Configuration
+                                                </span>
+                                                <Badge tone={'neutral'} variant={'soft'}>
+                                                    {(profile.sub_rules?.length || 0) + 1} Port Rules
+                                                </Badge>
+                                            </div>
+                                            <Button size={'xsmall'} onClick={() => openSubRuleModal(profile)}>
+                                                + Add Side Port
+                                            </Button>
+                                        </div>
+
+                                        <div className={'apa:overflow-x-auto'}>
+                                            <table className={'apa:w-full apa:text-left apa:border-collapse'}>
+                                                <thead>
+                                                    <tr className={'apa:border-b apa:border-muted apa:text-xs apa:text-muted-foreground apa:uppercase apa:bg-muted/30'}>
+                                                        <th className={'apa:py-3 apa:px-4'}>Service / Role</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Environment Key</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Port Type</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Port Formula / Range(s)</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Auto-Create</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Required</th>
+                                                        <th className={'apa:py-3 apa:px-4'}>Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className={'apa:divide-y apa:divide-muted apa:text-sm'}>
+                                                    {/* Primary Game Port (Base Allocation) */}
+                                                    <tr className={'apa:bg-card/40 apa:hover:bg-muted/20'}>
+                                                        <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
+                                                            <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                                <span>Primary Game Port</span>
+                                                                <Badge tone={'accent'} variant={'solid'}>Primary</Badge>
+                                                            </div>
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4'}>
+                                                            <span className={'apa:font-mono apa:text-xs apa:font-bold apa:text-primary'}>
+                                                                SERVER_PORT
+                                                            </span>
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4'}>
+                                                            <Badge tone={'neutral'} variant={'soft'}>Primary Range</Badge>
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-xs'}>
+                                                            {primaryDisplay}
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs apa:text-muted-foreground'}>
+                                                            —
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
+                                                            <span className={'apa:text-foreground apa:font-medium'}>Always Required</span>
+                                                        </td>
+                                                        <td className={'apa:py-3 apa:px-4 apa:text-xs apa:text-muted-foreground'}>
+                                                            Default Port
+                                                        </td>
+                                                    </tr>
+
+                                                    {/* Secondary Side Ports */}
+                                                    {profile.sub_rules && profile.sub_rules.length > 0 ? (
+                                                        profile.sub_rules.map((subRule) => (
                                                             <tr key={subRule.id} className={'apa:hover:bg-muted/20'}>
-                                                                <td className={'apa:py-2 apa:px-3 apa:font-medium apa:text-sm'}>
-                                                                    {subRule.name}
+                                                                <td className={'apa:py-3 apa:px-4 apa:font-medium'}>
+                                                                    <div className={'apa:flex apa:items-center apa:gap-2'}>
+                                                                        <span>{subRule.name}</span>
+                                                                        <Badge tone={'neutral'} variant={'soft'}>Side Port</Badge>
+                                                                    </div>
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3'}>
+                                                                <td className={'apa:py-3 apa:px-4'}>
                                                                     <span className={'apa:font-mono apa:text-xs apa:font-bold apa:text-primary'}>
                                                                         {subRule.env_variable}
                                                                     </span>
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3'}>
-                                                                    <Badge tone={'neutral'} variant={'soft'}>
+                                                                <td className={'apa:py-3 apa:px-4'}>
+                                                                    <Badge tone={'accent'} variant={'soft'}>
                                                                         {subRule.allocation_type === 'offset'
                                                                             ? 'Fixed Offset'
                                                                             : subRule.allocation_type === 'range'
@@ -463,9 +507,9 @@ export default function AdminScreen() {
                                                                               : 'Any Available'}
                                                                     </Badge>
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3 apa:font-mono apa:text-xs'}>
+                                                                <td className={'apa:py-3 apa:px-4 apa:font-mono apa:text-xs'}>
                                                                     {subRule.allocation_type === 'offset' && (
-                                                                        <span>SERVER_PORT + {subRule.offset_value}</span>
+                                                                        <span className={'apa:font-semibold'}>SERVER_PORT + {subRule.offset_value}</span>
                                                                     )}
                                                                     {subRule.allocation_type === 'range' && (
                                                                         <span>
@@ -480,34 +524,47 @@ export default function AdminScreen() {
                                                                         <span className={'apa:text-muted-foreground'}>Any Free Port</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3 apa:text-xs'}>
+                                                                <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
                                                                     {subRule.auto_create_allocation ? (
                                                                         <span className={'apa:text-success apa:font-medium'}>Yes</span>
                                                                     ) : (
                                                                         <span className={'apa:text-muted-foreground'}>No</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3 apa:text-xs'}>
+                                                                <td className={'apa:py-3 apa:px-4 apa:text-xs'}>
                                                                     {subRule.is_required ? (
                                                                         <span className={'apa:text-foreground apa:font-medium'}>Required</span>
                                                                     ) : (
                                                                         <span className={'apa:text-muted-foreground'}>Optional</span>
                                                                     )}
                                                                 </td>
-                                                                <td className={'apa:py-2 apa:px-3'}>
+                                                                <td className={'apa:py-3 apa:px-4'}>
                                                                     <button
                                                                         onClick={() => handleDeleteSubRule(profile.id, subRule.id)}
-                                                                        className={'apa:text-destructive apa:text-xs apa:hover:underline'}
+                                                                        className={'apa:text-destructive apa:text-xs apa:font-medium apa:hover:underline'}
                                                                     >
                                                                         Delete
                                                                     </button>
                                                                 </td>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        )}
+                                                        ))
+                                                    ) : (
+                                                        <tr>
+                                                            <td colSpan={7} className={'apa:py-6 apa:px-4 apa:text-center apa:text-xs apa:text-muted-foreground'}>
+                                                                No side ports configured yet for {profile.name}.{' '}
+                                                                <button
+                                                                    onClick={() => openSubRuleModal(profile)}
+                                                                    className={'apa:text-primary apa:font-semibold apa:hover:underline apa:ml-1'}
+                                                                >
+                                                                    + Add Side Port
+                                                                </button>{' '}
+                                                                (e.g. HTTP_PORT, ASE_PORT, RCON_PORT, Query).
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
                                 </div>
                             );
