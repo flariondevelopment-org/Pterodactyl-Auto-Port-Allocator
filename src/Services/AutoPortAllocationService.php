@@ -141,6 +141,7 @@ class AutoPortAllocationService
             $free = Allocation::query()
                 ->where('node_id', $node->id)
                 ->where('ip', $ip)
+                ->whereBetween('port', [1024, 65535])
                 ->whereNull('server_id')
                 ->orderBy('port')
                 ->first();
@@ -149,18 +150,7 @@ class AutoPortAllocationService
                 return $free;
             }
 
-            // Fallback across any other available IP on the same node
-            $free = Allocation::query()
-                ->where('node_id', $node->id)
-                ->whereNull('server_id')
-                ->orderBy('port')
-                ->first();
-
-            if ($free !== null) {
-                return $free;
-            }
-
-            throw new DisplayException("No available allocation found on node #{$node->id} for game profile \"{$profile->name}\".");
+            throw new DisplayException("No available allocation found on node #{$node->id} ({$ip}) for game profile \"{$profile->name}\".");
         }
 
         $allocation = $this->findOrCreateAllocationInRanges($node, $ip, $ranges, autoCreate: true);
