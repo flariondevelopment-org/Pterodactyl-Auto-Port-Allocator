@@ -19,7 +19,7 @@ final readonly class ChangeServerEggDecorator implements ChangesServerEgg
     public function change(Server $server, Egg $egg, bool $keepVariables = false): Server
     {
         $server = $this->inner->change($server, $egg, $keepVariables);
-        $this->allocator->allocateForExistingServer($server);
+        $this->allocator->allocateForExistingServer($server, validatePrimary: true);
 
         return $server;
     }

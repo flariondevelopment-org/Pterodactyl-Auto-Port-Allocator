@@ -55,7 +55,7 @@ class ServerPortAllocationController
     #[Endpoint('Sync Server Port Allocations', 'Evaluates the egg rules and automatically provisions/binds missing ports for this server.')]
     public function sync(Server $server): JsonResponse
     {
-        $this->allocator->allocateForExistingServer($server);
+        $this->allocator->allocateForExistingServer($server, validatePrimary: false);
 
         return $this->index($server);
     }
