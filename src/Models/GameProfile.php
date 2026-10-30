@@ -124,4 +124,17 @@ class GameProfile extends Model
 
         return false;
     }
+
+    /**
+     * Formats allowed primary ranges for display / exception messages.
+     */
+    public function getFormattedPrimaryRanges(): string
+    {
+        $ranges = $this->getAllowedPrimaryRanges();
+        if (empty($ranges)) {
+            return 'Any Port';
+        }
+
+        return implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
+    }
 }

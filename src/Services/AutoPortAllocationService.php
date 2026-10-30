@@ -149,7 +149,18 @@ class AutoPortAllocationService
                 return $free;
             }
 
-            throw new DisplayException("No available allocation found on node #{$node->id} ({$ip}) for game profile \"{$profile->name}\".");
+            // Fallback across any other available IP on the same node
+            $free = Allocation::query()
+                ->where('node_id', $node->id)
+                ->whereNull('server_id')
+                ->orderBy('port')
+                ->first();
+
+            if ($free !== null) {
+                return $free;
+            }
+
+            throw new DisplayException("No available allocation found on node #{$node->id} for game profile \"{$profile->name}\".");
         }
 
         $allocation = $this->findOrCreateAllocationInRanges($node, $ip, $ranges, autoCreate: true);
@@ -157,7 +168,7 @@ class AutoPortAllocationService
             return $allocation;
         }
 
-        $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
+        $rangesDisplay = $profile->getFormattedPrimaryRanges();
         throw new DisplayException(
             "Cannot auto-allocate primary port for \"{$profile->name}\": no free port found or created in ranges ({$rangesDisplay}) on node #{$node->id} ({$ip})."
         );
@@ -470,7 +481,7 @@ class AutoPortAllocationService
     private function validatePrimaryPortRange(GameProfile $profile, Allocation $primaryAllocation): void
     {
         if (! $profile->containsPrimaryPort($primaryAllocation->port)) {
-            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $profile->getAllowedPrimaryRanges()));
+            $rangesDisplay = $profile->getFormattedPrimaryRanges();
             throw new DisplayException(
                 "Primary port {$primaryAllocation->port} is outside the allowed primary port ranges ({$rangesDisplay}) for \"{$profile->name}\"."
             );
