@@ -71,26 +71,11 @@ class GameProfileController
             'primary_port_ranges.*.end' => ['required_with:primary_port_ranges', 'integer', 'between:1024,65535'],
         ]);
 
-        $eggIds = [];
-        if (! empty($validated['egg_ids'])) {
-            $eggIds = array_values(array_unique(array_map('intval', $validated['egg_ids'])));
-        } elseif (! empty($validated['egg_id'])) {
-            $eggIds = [(int) $validated['egg_id']];
-        }
-
-        if (empty($eggIds)) {
-            throw ValidationException::withMessages([
-                'egg_ids' => ['At least one target egg must be selected.'],
-            ]);
-        }
-
+        [$eggIds, $primaryEggId] = $this->resolveEggIds($validated);
         $validated['egg_ids'] = $eggIds;
-        $validated['egg_id'] = $eggIds[0];
+        $validated['egg_id'] = $primaryEggId;
 
-        if (! empty($validated['primary_port_ranges'])) {
-            $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
-            $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
-        }
+        $this->syncScalarRangeBounds($validated, 'primary_port_ranges', 'primary_range_start', 'primary_range_end');
 
         $profile = GameProfile::query()->create($validated);
 
@@ -119,27 +104,12 @@ class GameProfileController
         ]);
 
         if (array_key_exists('egg_ids', $validated) || array_key_exists('egg_id', $validated)) {
-            $eggIds = [];
-            if (! empty($validated['egg_ids'])) {
-                $eggIds = array_values(array_unique(array_map('intval', $validated['egg_ids'])));
-            } elseif (! empty($validated['egg_id'])) {
-                $eggIds = [(int) $validated['egg_id']];
-            }
-
-            if (empty($eggIds)) {
-                throw ValidationException::withMessages([
-                    'egg_ids' => ['At least one target egg must be selected.'],
-                ]);
-            }
-
+            [$eggIds, $primaryEggId] = $this->resolveEggIds($validated);
             $validated['egg_ids'] = $eggIds;
-            $validated['egg_id'] = $eggIds[0];
+            $validated['egg_id'] = $primaryEggId;
         }
 
-        if (array_key_exists('primary_port_ranges', $validated) && ! empty($validated['primary_port_ranges'])) {
-            $validated['primary_range_start'] = (int) $validated['primary_port_ranges'][0]['start'];
-            $validated['primary_range_end'] = (int) $validated['primary_port_ranges'][0]['end'];
-        }
+        $this->syncScalarRangeBounds($validated, 'primary_port_ranges', 'primary_range_start', 'primary_range_end');
 
         $profile->update($validated);
 
@@ -184,10 +154,7 @@ class GameProfileController
         $validated['env_variable'] = $envVar;
         $validated['profile_id'] = $profile->id;
 
-        if (! empty($validated['port_ranges'])) {
-            $validated['range_start'] = (int) $validated['port_ranges'][0]['start'];
-            $validated['range_end'] = (int) $validated['port_ranges'][0]['end'];
-        }
+        $this->syncScalarRangeBounds($validated, 'port_ranges', 'range_start', 'range_end');
 
         $subRule = SubRule::query()->create($validated);
 
@@ -222,10 +189,7 @@ class GameProfileController
             $validated['env_variable'] = $envVar;
         }
 
-        if (array_key_exists('port_ranges', $validated) && ! empty($validated['port_ranges'])) {
-            $validated['range_start'] = (int) $validated['port_ranges'][0]['start'];
-            $validated['range_end'] = (int) $validated['port_ranges'][0]['end'];
-        }
+        $this->syncScalarRangeBounds($validated, 'port_ranges', 'range_start', 'range_end');
 
         $subRule->update($validated);
 
@@ -292,5 +256,44 @@ class GameProfileController
         $profile->setRelation('eggs', $eggs);
 
         return $profile;
+    }
+
+    /**
+     * Resolves and normalizes egg_ids from the validated payload.
+     *
+     * @param  array<string, mixed>  $data
+     * @return array{0: list<int>, 1: int}
+     *
+     * @throws ValidationException
+     */
+    private function resolveEggIds(array $data): array
+    {
+        $eggIds = [];
+        if (! empty($data['egg_ids'])) {
+            $eggIds = array_values(array_unique(array_map('intval', $data['egg_ids'])));
+        } elseif (! empty($data['egg_id'])) {
+            $eggIds = [(int) $data['egg_id']];
+        }
+
+        if (empty($eggIds)) {
+            throw ValidationException::withMessages([
+                'egg_ids' => ['At least one target egg must be selected.'],
+            ]);
+        }
+
+        return [$eggIds, $eggIds[0]];
+    }
+
+    /**
+     * Unpacks the first range entry into scalar bounds for backward compatibility.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function syncScalarRangeBounds(array &$data, string $rangesKey, string $startKey, string $endKey): void
+    {
+        if (array_key_exists($rangesKey, $data) && ! empty($data[$rangesKey])) {
+            $data[$startKey] = (int) $data[$rangesKey][0]['start'];
+            $data[$endKey] = (int) $data[$rangesKey][0]['end'];
+        }
     }
 }

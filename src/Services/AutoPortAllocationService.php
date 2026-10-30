@@ -45,23 +45,7 @@ class AutoPortAllocationService
 
         // Validate primary allocation against profile ranges if configured
         if ($profile !== null) {
-            $allowedRanges = $profile->getAllowedPrimaryRanges();
-            if (! empty($allowedRanges)) {
-                $matchesAny = false;
-                foreach ($allowedRanges as $r) {
-                    if ($primaryAllocation->port >= $r['start'] && $primaryAllocation->port <= $r['end']) {
-                        $matchesAny = true;
-                        break;
-                    }
-                }
-
-                if (! $matchesAny) {
-                    $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $allowedRanges));
-                    throw new DisplayException(
-                        "Primary port {$primaryAllocation->port} is outside the allowed primary port ranges ({$rangesDisplay}) for \"{$profile->name}\"."
-                    );
-                }
-            }
+            $this->validatePrimaryPortRange($profile, $primaryAllocation);
         }
 
         /** @var Collection<int, SubRule|PortRule> $rules */
@@ -159,6 +143,10 @@ class AutoPortAllocationService
 
         /** @var GameProfile|null $profile */
         $profile = GameProfile::query()->forEgg($egg->id)->with('subRules')->first();
+
+        if ($profile !== null) {
+            $this->validatePrimaryPortRange($profile, $primary);
+        }
 
         /** @var Collection<int, SubRule|PortRule> $rules */
         $rules = $profile !== null && $profile->subRules->isNotEmpty()
@@ -267,7 +255,7 @@ class AutoPortAllocationService
         $targetPort = $primaryAllocation->port + $offset;
         $ip = $primaryAllocation->ip;
 
-        if ($targetPort < 1024 || $targetPort > 65535) {
+        if (! $this->isValidPort($targetPort)) {
             throw new DisplayException(
                 "Calculated offset port {$targetPort} for rule \"{$rule->name}\" is outside the valid port range (1024-65535)."
             );
@@ -282,27 +270,13 @@ class AutoPortAllocationService
 
         if ($allocation === null) {
             if (! $rule->auto_create_allocation) {
-                if ($rule->is_required) {
-                    throw new DisplayException(
-                        "Required offset port {$targetPort} ({$rule->name}) does not exist on node #{$node->id} ({$ip})."
-                    );
-                }
-
-                return null;
+                return $this->failOrNull(
+                    $rule,
+                    "Required offset port {$targetPort} ({$rule->name}) does not exist on node #{$node->id} ({$ip})."
+                );
             }
 
-            // Automatically create the allocation on the node
-            $this->createsAllocations->create($node, [
-                'allocation_ip' => $ip,
-                'allocation_ports' => [$targetPort],
-            ]);
-
-            $allocation = Allocation::query()
-                ->where('node_id', $node->id)
-                ->where('ip', $ip)
-                ->where('port', $targetPort)
-                ->first();
-
+            $allocation = $this->createAndFetchAllocation($node, $ip, $targetPort);
             if ($allocation === null) {
                 throw new DisplayException(
                     "Failed to auto-create allocation for offset port {$targetPort} on node #{$node->id} ({$ip})."
@@ -312,23 +286,17 @@ class AutoPortAllocationService
 
         // Verify availability
         if (in_array($allocation->id, $claimedIds, true)) {
-            if ($rule->is_required) {
-                throw new DisplayException(
-                    "Offset port {$targetPort} ({$rule->name}) is already claimed by another rule in this deployment."
-                );
-            }
-
-            return null;
+            return $this->failOrNull(
+                $rule,
+                "Offset port {$targetPort} ({$rule->name}) is already claimed by another rule in this deployment."
+            );
         }
 
         if ($allocation->server_id !== null && $allocation->server_id !== $currentServerId) {
-            if ($rule->is_required) {
-                throw new DisplayException(
-                    "Offset port {$targetPort} ({$rule->name}) on node #{$node->id} ({$ip}) is already in use by another server."
-                );
-            }
-
-            return null;
+            return $this->failOrNull(
+                $rule,
+                "Offset port {$targetPort} ({$rule->name}) on node #{$node->id} ({$ip}) is already in use by another server."
+            );
         }
 
         return $allocation;
@@ -369,18 +337,40 @@ class AutoPortAllocationService
             }
         }
 
-        if ($rule->is_required) {
-            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
-            throw new DisplayException(
-                "No free allocation found in ranges ({$rangesDisplay}) for rule \"{$rule->name}\" on node #{$node->id} ({$ip})."
-            );
+        // Auto-create an allocation in range if enabled and no unassigned allocation exists
+        if ($rule->auto_create_allocation) {
+            foreach ($ranges as $r) {
+                $start = $r['start'];
+                $end = $r['end'];
+
+                $existingPorts = Allocation::query()
+                    ->where('node_id', $node->id)
+                    ->where('ip', $ip)
+                    ->whereBetween('port', [$start, $end])
+                    ->pluck('port')
+                    ->all();
+                $existingPortSet = array_flip($existingPorts);
+
+                for ($port = $start; $port <= $end; $port++) {
+                    if (! isset($existingPortSet[$port])) {
+                        $created = $this->createAndFetchAllocation($node, $ip, $port);
+                        if ($created !== null && ! in_array($created->id, $claimedIds, true)) {
+                            return $created;
+                        }
+                    }
+                }
+            }
         }
 
-        return null;
+        $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
+        return $this->failOrNull(
+            $rule,
+            "No free allocation found in ranges ({$rangesDisplay}) for rule \"{$rule->name}\" on node #{$node->id} ({$ip})."
+        );
     }
 
     /**
-     * Resolves any unassigned allocation on the node and IP.
+     * Resolves any unassigned allocation on the node and IP, with fallback to other node IPs.
      *
      * @param  list<int>  $claimedIds
      */
@@ -401,12 +391,90 @@ class AutoPortAllocationService
             ->orderBy('port')
             ->first();
 
-        if ($allocation === null && $rule->is_required) {
-            throw new DisplayException(
-                "No available free allocation found on node #{$node->id} ({$ip}) for rule \"{$rule->name}\"."
+        // Fallback across any available IP on the same node
+        if ($allocation === null) {
+            $allocation = Allocation::query()
+                ->where('node_id', $node->id)
+                ->whereNull('server_id')
+                ->whereNotIn('id', $claimedIds)
+                ->orderBy('port')
+                ->first();
+        }
+
+        if ($allocation === null) {
+            return $this->failOrNull(
+                $rule,
+                "No available free allocation found on node #{$node->id} for rule \"{$rule->name}\"."
             );
         }
 
         return $allocation;
+    }
+
+    /**
+     * Validates that the primary allocation port is within the profile's allowed primary ranges.
+     *
+     * @throws DisplayException
+     */
+    private function validatePrimaryPortRange(GameProfile $profile, Allocation $primaryAllocation): void
+    {
+        $allowedRanges = $profile->getAllowedPrimaryRanges();
+        if (empty($allowedRanges)) {
+            return;
+        }
+
+        $matchesAny = false;
+        foreach ($allowedRanges as $r) {
+            if ($primaryAllocation->port >= $r['start'] && $primaryAllocation->port <= $r['end']) {
+                $matchesAny = true;
+                break;
+            }
+        }
+
+        if (! $matchesAny) {
+            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $allowedRanges));
+            throw new DisplayException(
+                "Primary port {$primaryAllocation->port} is outside the allowed primary port ranges ({$rangesDisplay}) for \"{$profile->name}\"."
+            );
+        }
+    }
+
+    /**
+     * Checks if a port number is within the valid networking port range.
+     */
+    private function isValidPort(int $port): bool
+    {
+        return $port >= 1024 && $port <= 65535;
+    }
+
+    /**
+     * Dispatches an allocation creation request and queries the persisted record.
+     */
+    private function createAndFetchAllocation(Node $node, string $ip, int $port): ?Allocation
+    {
+        $this->createsAllocations->create($node, [
+            'allocation_ip' => $ip,
+            'allocation_ports' => [(string) $port],
+        ]);
+
+        return Allocation::query()
+            ->where('node_id', $node->id)
+            ->where('ip', $ip)
+            ->where('port', $port)
+            ->first();
+    }
+
+    /**
+     * Throws an exception if the rule is strictly required, or returns null if optional.
+     *
+     * @throws DisplayException
+     */
+    private function failOrNull(SubRule|PortRule $rule, string $message): null
+    {
+        if ($rule->is_required) {
+            throw new DisplayException($message);
+        }
+
+        return null;
     }
 }

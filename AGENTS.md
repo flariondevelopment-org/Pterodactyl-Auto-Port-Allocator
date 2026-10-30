@@ -96,14 +96,14 @@ Auto-Port-Allocator/
 
 ### 1. Oyun Profili (GameProfile)
 Kullanıcı veya yönetici doğrudan oyuna özel bir profil oluşturur (örn: `MTA`, `Rust`, `Palworld`):
-- **İlişkili Yumurta (`egg_id`):** Profilin geçerli olduğu oyun yumurtası.
-- **Ana Port Aralığı (`primary_range_start` - `primary_range_end`):** Birincil oyun portunun (`SERVER_PORT`) bulunması gereken port aralığı (örn: MTA için `22003 - 22050`).
+- **İlişkili Yumurtalar (`egg_ids` / `egg_id`):** Profilin geçerli olduğu oyun yumurtası veya yumurtaları (çoklu yumurta seçimi desteklenir).
+- **Ana Port Aralığı / Aralıkları (`primary_port_ranges` / `primary_range_start` - `primary_range_end`):** Birincil oyun portunun (`SERVER_PORT`) bulunması gereken port aralığı veya birden fazla ayrık port aralığı (örn: MTA için `22003 - 22050`).
 
 ### 2. İkincil Port Alt Kuralları (Sub-Rules)
 Oyun profilinin içerisinde birden fazla ikincil port (secondary allocations) tanımlanır. Her bir port için ayrı strateji belirlenebilir:
 - **Fixed Offset (SERVER_PORT + offset):** Birincil porta belirli bir sayı eklenerek port tahsis edilir (örn: MTA HTTP için `SERVER_PORT + 2`, ASE için `SERVER_PORT + 123`).
-- **Specific Range:** İkincil port için özel bir port havuzundan (örn: RCON için `28016 - 28025`) boş port seçilir.
-- **Any Available:** Node ve IP üzerindeki ilk uygun boş allocation atanır.
+- **Specific Range(s) (`port_ranges`):** İkincil port için özel bir port havuzundan veya havuzlarından (örn: RCON için `28016 - 28025`) boş port seçilir.
+- **Any Available:** Node ve IP üzerindeki (gerektiğinde node üzerindeki diğer IP'lere fallback yaparak) ilk uygun boş allocation atanır.
 - **Auto-create on Node:** İlgili offset veya range portu node'da allocation olarak henüz tanımlanmamışsa otomatik oluşturulması seçeneği.
 - **Strictly Required:** Port bulunamadığında kurulumu durdurma veya opsiyonel bırakma seçeneği.
 

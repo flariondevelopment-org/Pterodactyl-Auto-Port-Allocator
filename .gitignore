@@ -3,3 +3,5 @@
 /vendor/
 /.panel/
 *.pteroext
+*.zip
+.agent/
