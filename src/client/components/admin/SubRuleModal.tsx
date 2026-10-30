@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, http, httpErrorToHuman, toast } from '@pterodactyl/sdk';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { RangeListInputs } from './RangeListInputs';
 import { useDynamicRanges } from '../../hooks/useDynamicRanges';
 import type { Egg, EggVariable, GameProfile, SubRule } from '../../types/admin';
 import { getProfileEggIds, RESERVED_VARIABLES } from '../../types/admin';
@@ -305,41 +306,14 @@ export function SubRuleModal({
                                 </Button>
                             </div>
 
-                            <div className={'apa:space-y-2'}>
-                                {subRuleRanges.map((range, idx) => (
-                                    <div key={idx} className={'apa:flex apa:items-center apa:gap-2'}>
-                                        <input
-                                            type={'number'}
-                                            value={range.start}
-                                            onChange={(e) => updateSubRuleRange(idx, 'start', e.target.value)}
-                                            placeholder={'Start (e.g. 28016)'}
-                                            className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                            required
-                                        />
-                                        <span className={'apa:text-muted-foreground apa:text-xs'}>to</span>
-                                        <input
-                                            type={'number'}
-                                            value={range.end}
-                                            onChange={(e) => updateSubRuleRange(idx, 'end', e.target.value)}
-                                            placeholder={'End (e.g. 28025)'}
-                                            className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                            required
-                                        />
-                                        {subRuleRanges.length > 1 && (
-                                            <Button
-                                                size={'xsmall'}
-                                                color={'red'}
-                                                type={'button'}
-                                                onClick={() => removeSubRuleRange(idx)}
-                                                title={'Remove Range'}
-                                                className={'apa:p-1.5'}
-                                            >
-                                                <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
-                                            </Button>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                            <RangeListInputs
+                                ranges={subRuleRanges}
+                                onUpdate={updateSubRuleRange}
+                                onRemove={removeSubRuleRange}
+                                startPlaceholder={'Start (e.g. 28016)'}
+                                endPlaceholder={'End (e.g. 28025)'}
+                                required
+                            />
                         </div>
                     )}
 

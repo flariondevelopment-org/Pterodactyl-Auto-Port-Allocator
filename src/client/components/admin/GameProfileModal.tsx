@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, http, httpErrorToHuman, toast } from '@pterodactyl/sdk';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { RangeListInputs } from './RangeListInputs';
 import { useDynamicRanges } from '../../hooks/useDynamicRanges';
 import type { Egg, GameProfile } from '../../types/admin';
 import { getProfileEggIds } from '../../types/admin';
@@ -200,7 +201,7 @@ export function GameProfileModal({
 
                         {/* Selected Egg Chips */}
                         {profileEggIds.length > 0 && (
-                            <div className={'apa:flex apa:flex-wrap gap-1.5'}>
+                            <div className={'apa:flex apa:flex-wrap apa:gap-1.5'}>
                                 {profileEggIds.map((id) => {
                                     const egg = eggs.find((e) => e.id === id);
                                     return (
@@ -284,39 +285,13 @@ export function GameProfileModal({
                             </Button>
                         </div>
 
-                        <div className={'apa:space-y-2'}>
-                            {primaryRanges.map((range, idx) => (
-                                <div key={idx} className={'apa:flex apa:items-center apa:gap-2'}>
-                                    <input
-                                        type={'number'}
-                                        value={range.start}
-                                        onChange={(e) => updatePrimaryRange(idx, 'start', e.target.value)}
-                                        placeholder={'Start (e.g. 22003)'}
-                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                    />
-                                    <span className={'apa:text-muted-foreground apa:text-xs'}>to</span>
-                                    <input
-                                        type={'number'}
-                                        value={range.end}
-                                        onChange={(e) => updatePrimaryRange(idx, 'end', e.target.value)}
-                                        placeholder={'End (e.g. 22050)'}
-                                        className={'apa:w-1/2 apa:rounded apa:border apa:border-muted apa:bg-background apa:p-2 apa:text-sm'}
-                                    />
-                                    {primaryRanges.length > 1 && (
-                                        <Button
-                                            size={'xsmall'}
-                                            color={'red'}
-                                            type={'button'}
-                                            onClick={() => removePrimaryRange(idx)}
-                                            title={'Remove Range'}
-                                            className={'apa:p-1.5'}
-                                        >
-                                            <Trash2 className={'apa:w-3.5 apa:h-3.5'} />
-                                        </Button>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
+                        <RangeListInputs
+                            ranges={primaryRanges}
+                            onUpdate={updatePrimaryRange}
+                            onRemove={removePrimaryRange}
+                            startPlaceholder={'Start (e.g. 22003)'}
+                            endPlaceholder={'End (e.g. 22050)'}
+                        />
                     </div>
 
                     {/* Modal Footer */}
