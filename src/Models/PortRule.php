@@ -30,6 +30,9 @@ class PortRule extends Model
     public const TYPE_ANY_AVAILABLE = 'any_available';
     public const TYPE_RANGE = 'range';
 
+    public const MIN_PORT = 1024;
+    public const MAX_PORT = 65535;
+
     protected $table = 'auto_port_allocator_rules';
 
     protected $fillable = [
@@ -61,5 +64,17 @@ class PortRule extends Model
     public function serverPorts(): HasMany
     {
         return $this->hasMany(ServerAllocatedPort::class, 'rule_id');
+    }
+
+    /**
+     * @return list<array{start: int, end: int}>
+     */
+    public function getAllowedRanges(): array
+    {
+        if ($this->range_start !== null && $this->range_end !== null) {
+            return [['start' => (int) $this->range_start, 'end' => (int) $this->range_end]];
+        }
+
+        return [['start' => self::MIN_PORT, 'end' => self::MAX_PORT]];
     }
 }

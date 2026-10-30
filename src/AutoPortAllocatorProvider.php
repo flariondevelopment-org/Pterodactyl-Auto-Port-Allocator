@@ -7,7 +7,6 @@ namespace AutoPortAllocator;
 use AutoPortAllocator\Decorators\ChangeServerEggDecorator;
 use AutoPortAllocator\Decorators\CreateServerDecorator;
 use AutoPortAllocator\Services\AutoPortAllocationService;
-use Pterodactyl\Contracts\Allocations\CreatesAllocations;
 use Pterodactyl\Contracts\Servers\ChangesServerEgg;
 use Pterodactyl\Contracts\Servers\CreatesServers;
 use Pterodactyl\Contracts\Servers\UpdatesServerVariable;
@@ -20,7 +19,6 @@ class AutoPortAllocatorProvider extends ExtensionProvider
     public function register(): void
     {
         $this->app->singleton(AutoPortAllocationService::class, fn ($app) => new AutoPortAllocationService(
-            $app->make(CreatesAllocations::class),
             $app->make(UpdatesServerVariable::class),
             $this->settings(),
         ));

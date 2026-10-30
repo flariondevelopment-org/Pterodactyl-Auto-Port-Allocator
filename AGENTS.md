@@ -104,7 +104,7 @@ Oyun profilinin içerisinde birden fazla ikincil port (secondary allocations) ta
 - **Fixed Offset (SERVER_PORT + offset):** Birincil porta belirli bir sayı eklenerek port tahsis edilir (örn: MTA HTTP için `SERVER_PORT + 2`, ASE için `SERVER_PORT + 123`).
 - **Specific Range(s) (`port_ranges`):** İkincil port için özel bir port havuzundan veya havuzlarından (örn: RCON için `28016 - 28025`) boş port seçilir.
 - **Any Available:** Node ve IP üzerindeki (gerektiğinde node üzerindeki diğer IP'lere fallback yaparak) ilk uygun boş allocation atanır.
-- **Auto-create on Node:** İlgili offset veya range portu node'da allocation olarak henüz tanımlanmamışsa otomatik oluşturulması seçeneği.
+- **Strict Node Pool Allocation:** Eklenti asla node üzerinde kendiliğinden yeni allocation oluşturmaz; yalnızca node havuzunda önceden tanımlanmış ve boşta olan (unassigned) allocation'ları kullanır.
 - **Strictly Required:** Port bulunamadığında kurulumu durdurma veya opsiyonel bırakma seçeneği.
 
 ### 3. Yumurta Değişimi & Otomatik Yeniden Tahsis (Egg Switch & Reallocation)
