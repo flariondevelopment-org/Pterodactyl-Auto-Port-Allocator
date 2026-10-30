@@ -129,9 +129,29 @@ class AutoPortAllocationService
     }
 
     /**
+     * Validates that the server's current primary allocation satisfies the target egg's profile rules.
+     *
+     * @throws DisplayException
+     */
+    public function assertServerCanUseEgg(Server $server, Egg $egg): void
+    {
+        $server->loadMissing(['allocation']);
+        $primary = $server->allocation;
+        if ($primary === null) {
+            return;
+        }
+
+        /** @var GameProfile|null $profile */
+        $profile = GameProfile::query()->forEgg($egg->id)->first();
+        if ($profile !== null) {
+            $this->validatePrimaryPortRange($profile, $primary);
+        }
+    }
+
+    /**
      * Resolves and assigns missing ports for an existing server (e.g. after egg switch or sync).
      */
-    public function allocateForExistingServer(Server $server, bool $validatePrimary = true): void
+    public function allocateForExistingServer(Server $server): void
     {
         $server->loadMissing(['egg', 'allocation', 'allocations', 'node']);
         $egg = $server->egg;
@@ -143,10 +163,6 @@ class AutoPortAllocationService
 
         /** @var GameProfile|null $profile */
         $profile = GameProfile::query()->forEgg($egg->id)->with('subRules')->first();
-
-        if ($validatePrimary && $profile !== null) {
-            $this->validatePrimaryPortRange($profile, $primary);
-        }
 
         /** @var Collection<int, SubRule|PortRule> $rules */
         $rules = $profile !== null && $profile->subRules->isNotEmpty()
