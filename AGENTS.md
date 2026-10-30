@@ -12,7 +12,7 @@ Pterodactyl panelinde varsayılan olarak sunucular tek bir ana port (primary all
 Bu projenin (`auto-port-allocator`) amacı:
 1. Pterodactyl 2.0 extension ekosistemine tam uyumlu bir eklenti olarak çalışmak.
 2. Yumurtalara (Egg) özel çoklu port kuralları tanımlanmasını sağlamak.
-3. Sunucu oluşturulurken (`CreateServer`) veya yumurta değiştirilirken (`ChangeServerEgg`), gerekli ek portları node'un allocation havuzundan **otomatik olarak bulup sunucuya atamak**.
+3. Sunucu oluşturulurken (`CreateServer`) veya yumurta değiştirilirken (`ChangeServerEgg`), gerekli ek portları node'un allocation havuzundan **otomatik olarak bulup sunucuya atamak**; yumurta değiştiğinde ana port hedef profile uymuyorsa yeni ana portu otomatik tahsis edip eski portları havuzda boşa çıkarmak.
 4. Atanan portları doğrudan ilgili sunucu ortam değişkenlerine (`ServerVariable` / Environment) otomatik senkronize etmek.
 5. Kullanıcı ve admin panelinde hangi portun ne amaçla kullanıldığını şeffaf bir şekilde listelemek.
 
@@ -106,6 +106,12 @@ Oyun profilinin içerisinde birden fazla ikincil port (secondary allocations) ta
 - **Any Available:** Node ve IP üzerindeki (gerektiğinde node üzerindeki diğer IP'lere fallback yaparak) ilk uygun boş allocation atanır.
 - **Auto-create on Node:** İlgili offset veya range portu node'da allocation olarak henüz tanımlanmamışsa otomatik oluşturulması seçeneği.
 - **Strictly Required:** Port bulunamadığında kurulumu durdurma veya opsiyonel bırakma seçeneği.
+
+### 3. Yumurta Değişimi & Otomatik Yeniden Tahsis (Egg Switch & Reallocation)
+Sunucunun yumurtası değiştirildiğinde (`ChangeServerEggDecorator`):
+- Sunucunun mevcut ana portu hedef profilin `primary_port_ranges` kuralına uymuyorsa, hedef aralıktan yeni bir ana port otomatik tahsis edilir (`allocation_id` güncellenir).
+- Eski oyundan kalan ikincil portlar ve eski birincil port sunucudan koparılıp boşa çıkarılarak (`unassign`) node havuzuna iade edilir (Seçenek A - Temiz Havuz).
+- Yeni oyun profilinin tüm alt kuralları (HTTP, Query, RCON vb.) sıfırdan kurularak ortam değişkenleriyle senkronize edilir.
 
 ---
 

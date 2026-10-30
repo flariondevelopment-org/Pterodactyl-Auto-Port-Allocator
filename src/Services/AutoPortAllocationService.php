@@ -129,23 +129,140 @@ class AutoPortAllocationService
     }
 
     /**
-     * Validates that the server's current primary allocation satisfies the target egg's profile rules.
+     * Resolves or auto-creates an unassigned allocation for the primary game port within profile ranges.
      *
      * @throws DisplayException
      */
-    public function assertServerCanUseEgg(Server $server, Egg $egg): void
+    public function resolvePrimaryAllocationForProfile(GameProfile $profile, Node $node, string $ip): Allocation
     {
-        $server->loadMissing(['allocation']);
-        $primary = $server->allocation;
-        if ($primary === null) {
+        $ranges = $profile->getAllowedPrimaryRanges();
+        if (empty($ranges)) {
+            /** @var Allocation|null $free */
+            $free = Allocation::query()
+                ->where('node_id', $node->id)
+                ->where('ip', $ip)
+                ->whereNull('server_id')
+                ->orderBy('port')
+                ->first();
+
+            if ($free !== null) {
+                return $free;
+            }
+
+            throw new DisplayException("No available allocation found on node #{$node->id} ({$ip}) for game profile \"{$profile->name}\".");
+        }
+
+        // 1. Search for existing unassigned allocation within allowed primary ranges
+        foreach ($ranges as $r) {
+            /** @var Allocation|null $allocation */
+            $allocation = Allocation::query()
+                ->where('node_id', $node->id)
+                ->where('ip', $ip)
+                ->whereBetween('port', [$r['start'], $r['end']])
+                ->whereNull('server_id')
+                ->orderBy('port')
+                ->first();
+
+            if ($allocation !== null) {
+                return $allocation;
+            }
+        }
+
+        // 2. Auto-create the first available port in ranges on the node
+        foreach ($ranges as $r) {
+            $start = $r['start'];
+            $end = $r['end'];
+
+            $existingPorts = Allocation::query()
+                ->where('node_id', $node->id)
+                ->where('ip', $ip)
+                ->whereBetween('port', [$start, $end])
+                ->pluck('port')
+                ->all();
+            $existingPortSet = array_flip($existingPorts);
+
+            for ($port = $start; $port <= $end; $port++) {
+                if (! isset($existingPortSet[$port])) {
+                    $created = $this->createAndFetchAllocation($node, $ip, $port);
+                    if ($created !== null) {
+                        return $created;
+                    }
+                }
+            }
+        }
+
+        $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
+        throw new DisplayException(
+            "Cannot auto-allocate primary port for \"{$profile->name}\": no free port found or created in ranges ({$rangesDisplay}) on node #{$node->id} ({$ip})."
+        );
+    }
+
+    /**
+     * Prepares and auto-reallocates server ports when switching to a new egg:
+     * - If the primary port is incompatible with the target egg's game profile,
+     *   automatically allocates a valid primary port and releases the old one (Option A).
+     * - Releases previous secondary sub-rule allocations back to the node pool.
+     *
+     * @throws DisplayException
+     */
+    public function prepareForEggSwitch(Server $server, Egg $newEgg): void
+    {
+        $server->loadMissing(['allocation', 'allocations', 'node']);
+        $currentPrimary = $server->allocation;
+        $node = $server->node;
+
+        if ($currentPrimary === null || $node === null) {
             return;
         }
 
         /** @var GameProfile|null $profile */
-        $profile = GameProfile::query()->forEgg($egg->id)->first();
+        $profile = GameProfile::query()->forEgg($newEgg->id)->first();
+
+        // 1. Check if current primary allocation satisfies target profile
+        $newPrimaryAllocation = null;
         if ($profile !== null) {
-            $this->validatePrimaryPortRange($profile, $primary);
+            $allowedRanges = $profile->getAllowedPrimaryRanges();
+            $isPrimaryValid = empty($allowedRanges);
+
+            if (! $isPrimaryValid) {
+                foreach ($allowedRanges as $r) {
+                    if ($currentPrimary->port >= $r['start'] && $currentPrimary->port <= $r['end']) {
+                        $isPrimaryValid = true;
+                        break;
+                    }
+                }
+            }
+
+            // If current primary port does not match new game profile, resolve a new primary allocation first
+            // (If no free port is available, this throws a DisplayException BEFORE any mutation happens)
+            if (! $isPrimaryValid) {
+                $newPrimaryAllocation = $this->resolvePrimaryAllocationForProfile($profile, $node, $currentPrimary->ip);
+            }
         }
+
+        // 2. Perform port reallocations safely in a transaction
+        DB::transaction(function () use ($server, $currentPrimary, $newPrimaryAllocation): void {
+            // Release existing secondary allocations tracked by Auto Port Allocator back to node pool
+            $trackedPorts = ServerAllocatedPort::query()
+                ->where('server_id', $server->id)
+                ->with('allocation')
+                ->get();
+
+            foreach ($trackedPorts as $tracked) {
+                if ($tracked->allocation !== null && $tracked->allocation_id !== $currentPrimary->id) {
+                    $tracked->allocation->update(['server_id' => null]);
+                }
+            }
+            ServerAllocatedPort::query()->where('server_id', $server->id)->delete();
+
+            // If primary port needs to be swapped to the new valid allocation
+            if ($newPrimaryAllocation !== null) {
+                $newPrimaryAllocation->update(['server_id' => $server->id]);
+                $server->forceFill(['allocation_id' => $newPrimaryAllocation->id])->save();
+                // Release old primary allocation back to node pool (Option A)
+                $currentPrimary->update(['server_id' => null]);
+            }
+        });
     }
 
     /**
