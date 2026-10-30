@@ -23,6 +23,9 @@ use Pterodactyl\Models\ServerVariable;
 
 class AutoPortAllocationService
 {
+    public const int MIN_VALID_PORT = 1024;
+    public const int MAX_VALID_PORT = 65535;
+
     public function __construct(
         private readonly CreatesAllocations $createsAllocations,
         private readonly UpdatesServerVariable $updatesServerVariable,
@@ -141,7 +144,7 @@ class AutoPortAllocationService
             $free = Allocation::query()
                 ->where('node_id', $node->id)
                 ->where('ip', $ip)
-                ->whereBetween('port', [1024, 65535])
+                ->whereBetween('port', [self::MIN_VALID_PORT, self::MAX_VALID_PORT])
                 ->whereNull('server_id')
                 ->orderBy('port')
                 ->first();
@@ -341,7 +344,7 @@ class AutoPortAllocationService
 
         if (! $this->isValidPort($targetPort)) {
             throw new DisplayException(
-                "Calculated offset port {$targetPort} for rule \"{$rule->name}\" is outside the valid port range (1024-65535)."
+                "Calculated offset port {$targetPort} for rule \"{$rule->name}\" is outside the valid port range (" . self::MIN_VALID_PORT . "-" . self::MAX_VALID_PORT . ")."
             );
         }
 
@@ -400,7 +403,7 @@ class AutoPortAllocationService
         $ip = $primaryAllocation->ip;
         $ranges = $rule instanceof SubRule
             ? $rule->getAllowedRanges()
-            : [['start' => $rule->range_start ?? 1024, 'end' => $rule->range_end ?? 65535]];
+            : [['start' => $rule->range_start ?? self::MIN_VALID_PORT, 'end' => $rule->range_end ?? self::MAX_VALID_PORT]];
 
         $allocation = $this->findOrCreateAllocationInRanges(
             $node,
@@ -541,7 +544,7 @@ class AutoPortAllocationService
      */
     private function isValidPort(int $port): bool
     {
-        return $port >= 1024 && $port <= 65535;
+        return $port >= self::MIN_VALID_PORT && $port <= self::MAX_VALID_PORT;
     }
 
     /**

@@ -32,6 +32,9 @@ class SubRule extends Model
     public const string TYPE_ANY_AVAILABLE = 'any_available';
     public const string TYPE_RANGE = 'range';
 
+    public const int MIN_PORT = 1024;
+    public const int MAX_PORT = 65535;
+
     protected $table = 'auto_port_allocator_sub_rules';
 
     protected $fillable = [
@@ -83,6 +86,6 @@ class SubRule extends Model
             return [['start' => (int) $this->range_start, 'end' => (int) $this->range_end]];
         }
 
-        return [['start' => 1024, 'end' => 65535]];
+        return [['start' => self::MIN_PORT, 'end' => self::MAX_PORT]];
     }
 }
