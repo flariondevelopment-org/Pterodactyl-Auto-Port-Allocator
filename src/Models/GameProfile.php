@@ -105,4 +105,23 @@ class GameProfile extends Model
 
         return [];
     }
+
+    /**
+     * Checks if a port number satisfies the profile's allowed primary ranges.
+     */
+    public function containsPrimaryPort(int $port): bool
+    {
+        $ranges = $this->getAllowedPrimaryRanges();
+        if (empty($ranges)) {
+            return true;
+        }
+
+        foreach ($ranges as $r) {
+            if ($port >= $r['start'] && $port <= $r['end']) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

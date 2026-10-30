@@ -152,43 +152,9 @@ class AutoPortAllocationService
             throw new DisplayException("No available allocation found on node #{$node->id} ({$ip}) for game profile \"{$profile->name}\".");
         }
 
-        // 1. Search for existing unassigned allocation within allowed primary ranges
-        foreach ($ranges as $r) {
-            /** @var Allocation|null $allocation */
-            $allocation = Allocation::query()
-                ->where('node_id', $node->id)
-                ->where('ip', $ip)
-                ->whereBetween('port', [$r['start'], $r['end']])
-                ->whereNull('server_id')
-                ->orderBy('port')
-                ->first();
-
-            if ($allocation !== null) {
-                return $allocation;
-            }
-        }
-
-        // 2. Auto-create the first available port in ranges on the node
-        foreach ($ranges as $r) {
-            $start = $r['start'];
-            $end = $r['end'];
-
-            $existingPorts = Allocation::query()
-                ->where('node_id', $node->id)
-                ->where('ip', $ip)
-                ->whereBetween('port', [$start, $end])
-                ->pluck('port')
-                ->all();
-            $existingPortSet = array_flip($existingPorts);
-
-            for ($port = $start; $port <= $end; $port++) {
-                if (! isset($existingPortSet[$port])) {
-                    $created = $this->createAndFetchAllocation($node, $ip, $port);
-                    if ($created !== null) {
-                        return $created;
-                    }
-                }
-            }
+        $allocation = $this->findOrCreateAllocationInRanges($node, $ip, $ranges, autoCreate: true);
+        if ($allocation !== null) {
+            return $allocation;
         }
 
         $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
@@ -220,24 +186,8 @@ class AutoPortAllocationService
 
         // 1. Check if current primary allocation satisfies target profile
         $newPrimaryAllocation = null;
-        if ($profile !== null) {
-            $allowedRanges = $profile->getAllowedPrimaryRanges();
-            $isPrimaryValid = empty($allowedRanges);
-
-            if (! $isPrimaryValid) {
-                foreach ($allowedRanges as $r) {
-                    if ($currentPrimary->port >= $r['start'] && $currentPrimary->port <= $r['end']) {
-                        $isPrimaryValid = true;
-                        break;
-                    }
-                }
-            }
-
-            // If current primary port does not match new game profile, resolve a new primary allocation first
-            // (If no free port is available, this throws a DisplayException BEFORE any mutation happens)
-            if (! $isPrimaryValid) {
-                $newPrimaryAllocation = $this->resolvePrimaryAllocationForProfile($profile, $node, $currentPrimary->ip);
-            }
+        if ($profile !== null && ! $profile->containsPrimaryPort($currentPrimary->port)) {
+            $newPrimaryAllocation = $this->resolvePrimaryAllocationForProfile($profile, $node, $currentPrimary->ip);
         }
 
         // 2. Perform port reallocations safely in a transaction
@@ -451,44 +401,16 @@ class AutoPortAllocationService
             ? $rule->getAllowedRanges()
             : [['start' => $rule->range_start ?? 1024, 'end' => $rule->range_end ?? 65535]];
 
-        foreach ($ranges as $r) {
-            $allocation = Allocation::query()
-                ->where('node_id', $node->id)
-                ->where('ip', $ip)
-                ->whereBetween('port', [$r['start'], $r['end']])
-                ->whereNull('server_id')
-                ->whereNotIn('id', $claimedIds)
-                ->orderBy('port')
-                ->first();
+        $allocation = $this->findOrCreateAllocationInRanges(
+            $node,
+            $ip,
+            $ranges,
+            autoCreate: (bool) $rule->auto_create_allocation,
+            claimedIds: $claimedIds
+        );
 
-            if ($allocation !== null) {
-                return $allocation;
-            }
-        }
-
-        // Auto-create an allocation in range on this IP if enabled and no unassigned allocation exists
-        if ($rule->auto_create_allocation) {
-            foreach ($ranges as $r) {
-                $start = $r['start'];
-                $end = $r['end'];
-
-                $existingPorts = Allocation::query()
-                    ->where('node_id', $node->id)
-                    ->where('ip', $ip)
-                    ->whereBetween('port', [$start, $end])
-                    ->pluck('port')
-                    ->all();
-                $existingPortSet = array_flip($existingPorts);
-
-                for ($port = $start; $port <= $end; $port++) {
-                    if (! isset($existingPortSet[$port])) {
-                        $created = $this->createAndFetchAllocation($node, $ip, $port);
-                        if ($created !== null && ! in_array($created->id, $claimedIds, true)) {
-                            return $created;
-                        }
-                    }
-                }
-            }
+        if ($allocation !== null) {
+            return $allocation;
         }
 
         $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $ranges));
@@ -547,25 +469,70 @@ class AutoPortAllocationService
      */
     private function validatePrimaryPortRange(GameProfile $profile, Allocation $primaryAllocation): void
     {
-        $allowedRanges = $profile->getAllowedPrimaryRanges();
-        if (empty($allowedRanges)) {
-            return;
-        }
-
-        $matchesAny = false;
-        foreach ($allowedRanges as $r) {
-            if ($primaryAllocation->port >= $r['start'] && $primaryAllocation->port <= $r['end']) {
-                $matchesAny = true;
-                break;
-            }
-        }
-
-        if (! $matchesAny) {
-            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $allowedRanges));
+        if (! $profile->containsPrimaryPort($primaryAllocation->port)) {
+            $rangesDisplay = implode(', ', array_map(fn ($r) => "{$r['start']}-{$r['end']}", $profile->getAllowedPrimaryRanges()));
             throw new DisplayException(
                 "Primary port {$primaryAllocation->port} is outside the allowed primary port ranges ({$rangesDisplay}) for \"{$profile->name}\"."
             );
         }
+    }
+
+    /**
+     * Finds an unassigned allocation matching ranges, or auto-creates the first available port.
+     *
+     * @param  list<array{start: int, end: int}>  $ranges
+     * @param  list<int>  $claimedIds
+     */
+    private function findOrCreateAllocationInRanges(
+        Node $node,
+        string $ip,
+        array $ranges,
+        bool $autoCreate = false,
+        array $claimedIds = []
+    ): ?Allocation {
+        // 1. Search existing unassigned allocation
+        foreach ($ranges as $r) {
+            /** @var Allocation|null $allocation */
+            $allocation = Allocation::query()
+                ->where('node_id', $node->id)
+                ->where('ip', $ip)
+                ->whereBetween('port', [$r['start'], $r['end']])
+                ->whereNull('server_id')
+                ->whereNotIn('id', $claimedIds)
+                ->orderBy('port')
+                ->first();
+
+            if ($allocation !== null) {
+                return $allocation;
+            }
+        }
+
+        // 2. Auto-create on node if enabled
+        if ($autoCreate) {
+            foreach ($ranges as $r) {
+                $start = $r['start'];
+                $end = $r['end'];
+
+                $existingPorts = Allocation::query()
+                    ->where('node_id', $node->id)
+                    ->where('ip', $ip)
+                    ->whereBetween('port', [$start, $end])
+                    ->pluck('port')
+                    ->all();
+                $existingPortSet = array_flip($existingPorts);
+
+                for ($port = $start; $port <= $end; $port++) {
+                    if (! isset($existingPortSet[$port])) {
+                        $created = $this->createAndFetchAllocation($node, $ip, $port);
+                        if ($created !== null && ! in_array($created->id, $claimedIds, true)) {
+                            return $created;
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
