@@ -113,6 +113,12 @@ Sunucunun yumurtası değiştirildiğinde (`ChangeServerEggDecorator`):
 - Eski oyundan kalan ikincil portlar ve eski birincil port sunucudan koparılıp boşa çıkarılarak (`unassign`) node havuzuna iade edilir (Seçenek A - Temiz Havuz).
 - Yeni oyun profilinin tüm alt kuralları (HTTP, Query, RCON vb.) sıfırdan kurularak ortam değişkenleriyle senkronize edilir.
 
+### 4. Yerleşik Eklenti Ayarları (Native Extension Settings)
+Pterodactyl 2.0 çekirdeğindeki `ExtensionSettingsDefinition` sistemi kullanılarak panel admin arayüzüne genel ayarlar entegre edilmiştir:
+- **Minimum Usable Port (`min_port`):** Otomatik port tahsisinde izin verilen küresel alt sınır (varsayılan: 1024).
+- **Maximum Usable Port (`max_port`):** Otomatik port tahsisinde izin verilen küresel üst sınır (varsayılan: 65535).
+- Bu ayarlar panelin core `extension_settings` tablosunda saklanır ve `AutoPortAllocationService` tarafından tüm dinamik tahsislerde (Offset, Range, Any Available) bağlayıcı güvenlik sınırı olarak kullanılır.
+
 ---
 
 ## 6. Geliştirme ve Derleme Kuralları

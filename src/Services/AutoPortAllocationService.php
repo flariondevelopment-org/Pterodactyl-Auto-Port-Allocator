@@ -20,6 +20,7 @@ use Pterodactyl\Models\EggVariable;
 use Pterodactyl\Models\Node;
 use Pterodactyl\Models\Server;
 use Pterodactyl\Models\ServerVariable;
+use Pterodactyl\Services\Extensions\ExtensionSettings;
 
 class AutoPortAllocationService
 {
@@ -29,7 +30,24 @@ class AutoPortAllocationService
     public function __construct(
         private readonly CreatesAllocations $createsAllocations,
         private readonly UpdatesServerVariable $updatesServerVariable,
+        private readonly ?ExtensionSettings $extensionSettings = null,
     ) {}
+
+    /**
+     * Gets the configured minimum usable port boundary.
+     */
+    public function getMinPort(): int
+    {
+        return (int) ($this->extensionSettings?->get('min_port', self::MIN_VALID_PORT) ?? self::MIN_VALID_PORT);
+    }
+
+    /**
+     * Gets the configured maximum usable port boundary.
+     */
+    public function getMaxPort(): int
+    {
+        return (int) ($this->extensionSettings?->get('max_port', self::MAX_VALID_PORT) ?? self::MAX_VALID_PORT);
+    }
 
     /**
      * Resolves and plans port allocations for server creation before the server model is saved.
@@ -140,11 +158,14 @@ class AutoPortAllocationService
     {
         $ranges = $profile->getAllowedPrimaryRanges();
         if (empty($ranges)) {
+            $minPort = $this->getMinPort();
+            $maxPort = $this->getMaxPort();
+
             /** @var Allocation|null $free */
             $free = Allocation::query()
                 ->where('node_id', $node->id)
                 ->where('ip', $ip)
-                ->whereBetween('port', [self::MIN_VALID_PORT, self::MAX_VALID_PORT])
+                ->whereBetween('port', [$minPort, $maxPort])
                 ->whereNull('server_id')
                 ->orderBy('port')
                 ->first();
@@ -344,7 +365,7 @@ class AutoPortAllocationService
 
         if (! $this->isValidPort($targetPort)) {
             throw new DisplayException(
-                "Calculated offset port {$targetPort} for rule \"{$rule->name}\" is outside the valid port range (" . self::MIN_VALID_PORT . "-" . self::MAX_VALID_PORT . ")."
+                "Calculated offset port {$targetPort} for rule \"{$rule->name}\" is outside the allowed port range ({$this->getMinPort()}-{$this->getMaxPort()})."
             );
         }
 
@@ -401,9 +422,11 @@ class AutoPortAllocationService
         array $claimedIds
     ): ?Allocation {
         $ip = $primaryAllocation->ip;
+        $minPort = $this->getMinPort();
+        $maxPort = $this->getMaxPort();
         $ranges = $rule instanceof SubRule
-            ? $rule->getAllowedRanges()
-            : [['start' => $rule->range_start ?? self::MIN_VALID_PORT, 'end' => $rule->range_end ?? self::MAX_VALID_PORT]];
+            ? $rule->getAllowedRanges($minPort, $maxPort)
+            : [['start' => $rule->range_start ?? $minPort, 'end' => $rule->range_end ?? $maxPort]];
 
         $allocation = $this->findOrCreateAllocationInRanges(
             $node,
@@ -436,11 +459,14 @@ class AutoPortAllocationService
         array $claimedIds
     ): ?Allocation {
         $ip = $primaryAllocation->ip;
+        $minPort = $this->getMinPort();
+        $maxPort = $this->getMaxPort();
 
         /** @var Allocation|null $allocation */
         $allocation = Allocation::query()
             ->where('node_id', $node->id)
             ->where('ip', $ip)
+            ->whereBetween('port', [$minPort, $maxPort])
             ->whereNull('server_id')
             ->whereNotIn('id', $claimedIds)
             ->orderBy('port')
@@ -450,6 +476,7 @@ class AutoPortAllocationService
         if ($allocation === null) {
             $allocation = Allocation::query()
                 ->where('node_id', $node->id)
+                ->whereBetween('port', [$minPort, $maxPort])
                 ->whereNull('server_id')
                 ->whereNotIn('id', $claimedIds)
                 ->orderBy('port')
@@ -544,7 +571,7 @@ class AutoPortAllocationService
      */
     private function isValidPort(int $port): bool
     {
-        return $port >= self::MIN_VALID_PORT && $port <= self::MAX_VALID_PORT;
+        return $port >= $this->getMinPort() && $port <= $this->getMaxPort();
     }
 
     /**

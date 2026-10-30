@@ -73,7 +73,7 @@ class SubRule extends Model
     /**
      * @return list<array{start: int, end: int}>
      */
-    public function getAllowedRanges(): array
+    public function getAllowedRanges(?int $fallbackMin = null, ?int $fallbackMax = null): array
     {
         if (! empty($this->port_ranges) && is_array($this->port_ranges)) {
             $filtered = array_values(array_filter($this->port_ranges, fn ($r) => isset($r['start'], $r['end']) && is_numeric($r['start']) && is_numeric($r['end'])));
@@ -86,6 +86,6 @@ class SubRule extends Model
             return [['start' => (int) $this->range_start, 'end' => (int) $this->range_end]];
         }
 
-        return [['start' => self::MIN_PORT, 'end' => self::MAX_PORT]];
+        return [['start' => $fallbackMin ?? self::MIN_PORT, 'end' => $fallbackMax ?? self::MAX_PORT]];
     }
 }
